@@ -29,8 +29,9 @@ Set these values in Portainer's protected environment or secret management. Neve
 | `MINIO_SECRET_KEY` | `MediaStorage__SecretKey` | Private object-storage secret |
 | `MINIO_IMAGE` | — | Explicit MinIO release image |
 | `FIREBASE_PROJECT_ID` | `Firebase__ProjectId` | FCM project; leave empty to disable push |
-| `FIREBASE_CREDENTIALS_HOST_PATH` | — | Read-only service-account JSON host path |
-| `FIREBASE_CREDENTIALS_PATH` | `Firebase__CredentialsPath` | Container path, normally `/run/secrets/firebase.json` |
+| `FIREBASE_CREDENTIALS_HOST_DIRECTORY` | — | Read-only host directory containing `firebase-service-account.json` |
+| `FIREBASE_CREDENTIALS_PATH` | `Firebase__CredentialsPath` | Container path, normally `/run/secrets/firebase/firebase-service-account.json` |
+| `API_MAX_REQUEST_BYTES` | `ApiHardening__MaximumRequestBodyBytes` | Maximum request size; use `10485760` for proxied 10 MiB image uploads |
 
 The stack binds API and MinIO console ports to loopback by default. Put TLS at the trusted reverse proxy and expose only the API route needed by clients. Create `gamecollector-media` as a private MinIO bucket before accepting uploads.
 

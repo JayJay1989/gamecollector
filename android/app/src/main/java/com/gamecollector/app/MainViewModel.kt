@@ -611,11 +611,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun activateCurrentDevice(): Boolean {
-        val token = FirebaseBootstrap.token(app) ?: BuildConfig.FCM_TOKEN.ifBlank {
-            if (BuildConfig.DEBUG) "debug-deferred-$deviceId" else {
-                showError("A push token is required before this release build can activate the device.")
-                return false
-            }
+        val token = FirebaseBootstrap.token(app) ?: if (BuildConfig.DEBUG) {
+            "debug-deferred-$deviceId"
+        } else {
+            showError("A push token is required before this release build can activate the device.")
+            return false
         }
         return when (val result = api.activateDevice(deviceId, token)) {
             is ApiResult.Success -> true

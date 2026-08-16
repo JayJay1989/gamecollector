@@ -108,14 +108,7 @@ class DraftUploadWorker(context: Context, params: WorkerParameters) : CoroutineW
                         return UploadOutcome.Ready
                     }
                     "Processing" -> return UploadOutcome.Retry
-                    "PendingUpload" -> when (val completed = api.completeMedia(deviceId, mediaId)) {
-                        is ApiResult.Success -> {
-                            dao.upsertUpload(upload.copy(state = completed.value.status, lastError = null))
-                            return if (completed.value.status == "Ready") UploadOutcome.Ready else UploadOutcome.Retry
-                        }
-                        is ApiResult.NetworkError -> return UploadOutcome.Retry
-                        else -> Unit
-                    }
+                    "PendingUpload" -> return uploadContent(api, deviceId, upload, dao)
                 }
                 is ApiResult.NetworkError -> return UploadOutcome.Retry
                 else -> Unit
@@ -131,20 +124,29 @@ class DraftUploadWorker(context: Context, params: WorkerParameters) : CoroutineW
         else updateUploadFailure(dao, upload, (intent as ApiResult.Error).message)
         val withIntent = upload.copy(serverMediaId = intent.value.mediaId, state = "Uploading", fileSizeBytes = bytes.size.toLong(), lastError = null)
         dao.upsertUpload(withIntent)
-        when (val sent = api.uploadToPresignedUrl(intent.value.uploadUrl, upload.contentType, bytes)) {
-            is ApiResult.Success -> Unit
-            is ApiResult.NetworkError -> return UploadOutcome.Retry
-            is ApiResult.Error -> return updateUploadFailure(dao, withIntent, sent.message)
-            ApiResult.SignedOut -> return UploadOutcome.Retry
-        }
-        return when (val completed = api.completeMedia(deviceId, intent.value.mediaId)) {
+        return uploadContent(api, deviceId, withIntent, dao, bytes)
+    }
+
+    private suspend fun uploadContent(
+        api: GameCollectorApi,
+        deviceId: String,
+        upload: PendingMediaUpload,
+        dao: com.gamecollector.core.database.DraftDao,
+        existingBytes: ByteArray? = null,
+    ): UploadOutcome {
+        val mediaId = upload.serverMediaId ?: return updateUploadFailure(dao, upload, "The image upload is missing its server identifier.")
+        val bytes = existingBytes ?: runCatching {
+            applicationContext.contentResolver.openInputStream(Uri.parse(upload.localUri))?.use { it.readBytes() }
+        }.getOrNull() ?: return updateUploadFailure(dao, upload, "The saved image can no longer be read.")
+        if (bytes.isEmpty() || bytes.size > MAX_IMAGE_BYTES)
+            return updateUploadFailure(dao, upload, "Images must be between 1 byte and 10 MiB.")
+        return when (val sent = api.uploadMedia(deviceId, mediaId, upload.contentType, bytes)) {
             is ApiResult.Success -> {
-                dao.upsertUpload(withIntent.copy(state = completed.value.status, lastError = null))
-                if (completed.value.status == "Ready") UploadOutcome.Ready else UploadOutcome.Retry
+                dao.upsertUpload(upload.copy(state = sent.value.status, lastError = null))
+                if (sent.value.status == "Ready") UploadOutcome.Ready else UploadOutcome.Retry
             }
-            is ApiResult.NetworkError -> UploadOutcome.Retry
-            is ApiResult.Error -> updateUploadFailure(dao, withIntent, completed.message)
-            ApiResult.SignedOut -> UploadOutcome.Retry
+            is ApiResult.NetworkError, ApiResult.SignedOut -> UploadOutcome.Retry
+            is ApiResult.Error -> updateUploadFailure(dao, upload, sent.message)
         }
     }
 

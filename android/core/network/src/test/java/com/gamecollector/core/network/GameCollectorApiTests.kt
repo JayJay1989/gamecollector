@@ -211,6 +211,22 @@ class GameCollectorApiTests {
         assertEquals("image/jpeg", transport.requests[1].body?.contentType().toString())
     }
 
+    @Test
+    fun proxiedMediaUploadUsesApiAuthenticationAndDeviceHeader() = runBlocking {
+        val image = """{"id":"media-1","gameId":"game-1","imageType":"Front","status":"Processing","contentType":"image/jpeg","fileSizeBytes":3,"width":null,"height":null,"checksum":null,"originalUrl":null,"thumbnailUrl":null}"""
+        val transport = TestTransport(ResponseSpec(202, image))
+
+        val result = api(transport).uploadMedia("device-123", "media-1", "image/jpeg", byteArrayOf(1, 2, 3))
+
+        assertTrue(result is ApiResult.Success && result.value.status == "Processing")
+        val request = transport.requests.single()
+        assertEquals("PUT", request.method)
+        assertEquals("/api/v1/media/media-1/content", request.url.encodedPath)
+        assertEquals("Bearer access-token", request.header("Authorization"))
+        assertEquals("device-123", request.header("X-Device-Id"))
+        assertEquals("image/jpeg", request.body?.contentType().toString())
+    }
+
     private fun api(transport: TestTransport) = GameCollectorApi(
         "https://api.example.test",
         AccessTokenProvider { "access-token" },

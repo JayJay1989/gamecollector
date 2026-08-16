@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.compose.compiler)
+    alias(libs.plugins.google.services)
 }
 
 fun quotedProperty(name: String, fallback: String): String =
@@ -14,7 +15,7 @@ val hasReleaseSigning = listOf(releaseStoreFile, releaseStorePassword, releaseKe
 val hasProductionApi = providers.gradleProperty("gamecollector.apiBaseUrl")
     .map { it.isNotBlank() && !it.contains("example.com") }
     .getOrElse(false)
-val hasFirebaseApp = providers.gradleProperty("gamecollector.firebaseApplicationId").map(String::isNotBlank).getOrElse(false)
+val hasFirebaseApp = file("src/release/google-services.json").isFile
 val hasAppLinkHost = providers.gradleProperty("gamecollector.appLinkHost").map(String::isNotBlank).getOrElse(false)
 val hasReleaseVersionCode = providers.gradleProperty("gamecollector.versionCode").isPresent
 val hasReleaseVersionName = providers.gradleProperty("gamecollector.versionName").isPresent
@@ -37,11 +38,6 @@ android {
         buildConfigField("String", "OIDC_CLIENT_ID", quotedProperty("gamecollector.oidcClientId", "gamecollector-android"))
         buildConfigField("String", "OIDC_REDIRECT_URI", quotedProperty("gamecollector.oidcRedirectUri", "com.gamecollector.app:/oauth2redirect"))
         buildConfigField("String", "API_BASE_URL", quotedProperty("gamecollector.apiBaseUrl", "https://gc.lateur.pro/"))
-        buildConfigField("String", "FCM_TOKEN", quotedProperty("gamecollector.fcmToken", ""))
-        buildConfigField("String", "FIREBASE_APPLICATION_ID", quotedProperty("gamecollector.firebaseApplicationId", ""))
-        buildConfigField("String", "FIREBASE_API_KEY", quotedProperty("gamecollector.firebaseApiKey", ""))
-        buildConfigField("String", "FIREBASE_PROJECT_ID", quotedProperty("gamecollector.firebaseProjectId", ""))
-        buildConfigField("String", "FIREBASE_SENDER_ID", quotedProperty("gamecollector.firebaseSenderId", ""))
         buildConfigField("String", "APP_LINK_HOST", quotedProperty("gamecollector.appLinkHost", "app.example.com"))
         buildConfigField("String", "BUILD_REVISION", quotedProperty("gamecollector.buildRevision", "local"))
     }

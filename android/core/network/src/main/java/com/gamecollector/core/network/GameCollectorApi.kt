@@ -296,6 +296,46 @@ class GameCollectorApi(
             }
         }
 
+    suspend fun uploadMedia(deviceId: String, mediaId: String, contentType: String, bytes: ByteArray): ApiResult<GameImage> =
+        withContext(Dispatchers.IO) {
+            val token = runCatching { tokens.freshAccessToken() }.getOrElse {
+                return@withContext ApiResult.NetworkError("Could not refresh the login session.")
+            } ?: return@withContext ApiResult.SignedOut
+            val url = baseUrl.resolve("api/v1/media/$mediaId/content")
+                ?: return@withContext ApiResult.NetworkError("The API URL is invalid.")
+            val request = Request.Builder()
+                .url(url)
+                .header("Authorization", "Bearer $token")
+                .header("Accept", "application/json")
+                .header("X-Device-Id", deviceId)
+                .header("X-Correlation-ID", UUID.randomUUID().toString())
+                .put(bytes.toRequestBody(contentType.toMediaType()))
+                .build()
+            try {
+                client.newCall(request).execute().use { response ->
+                    val content = response.body.string()
+                    if (response.code == 202) {
+                        runCatching { ApiResult.Success(gameImage(content)) }
+                            .getOrElse { ApiResult.NetworkError("The API response could not be read.") }
+                    } else {
+                        val problem = runCatching { JSONObject(content) }.getOrNull()
+                        ApiResult.Error(
+                            statusCode = response.code,
+                            code = problem?.optString("code")?.takeIf(String::isNotBlank),
+                            message = problem?.optString("detail")?.takeIf(String::isNotBlank)
+                                ?: problem?.optString("title")?.takeIf(String::isNotBlank)
+                                ?: "The API returned HTTP ${response.code}.",
+                            referenceId = response.header("X-Correlation-ID")
+                                ?: problem?.optString("correlationId")?.takeIf(String::isNotBlank)
+                                ?: problem?.optString("traceId")?.takeIf(String::isNotBlank),
+                        )
+                    }
+                }
+            } catch (_: IOException) {
+                ApiResult.NetworkError("The image upload could not be completed.")
+            }
+        }
+
     suspend fun completeMedia(deviceId: String, mediaId: String) = request(
         "api/v1/media/$mediaId/complete",
         method = "POST",

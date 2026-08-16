@@ -16,7 +16,6 @@ import com.gamecollector.core.auth.OidcSessionManager
 import com.gamecollector.core.network.ApiResult
 import com.gamecollector.core.network.GameCollectorApi
 import com.google.firebase.FirebaseApp
-import com.google.firebase.FirebaseOptions
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
@@ -46,22 +45,13 @@ class PushTokenStore(context: Context) {
 object FirebaseBootstrap {
     fun initialize(context: Context): Boolean {
         if (FirebaseApp.getApps(context).isNotEmpty()) return true
-        if (listOf(BuildConfig.FIREBASE_APPLICATION_ID, BuildConfig.FIREBASE_API_KEY,
-                BuildConfig.FIREBASE_PROJECT_ID, BuildConfig.FIREBASE_SENDER_ID).any(String::isBlank)) return false
-        val options = FirebaseOptions.Builder()
-            .setApplicationId(BuildConfig.FIREBASE_APPLICATION_ID)
-            .setApiKey(BuildConfig.FIREBASE_API_KEY)
-            .setProjectId(BuildConfig.FIREBASE_PROJECT_ID)
-            .setGcmSenderId(BuildConfig.FIREBASE_SENDER_ID)
-            .build()
-        FirebaseApp.initializeApp(context, options)
-        return true
+        return FirebaseApp.initializeApp(context) != null
     }
 
     @Suppress("DEPRECATION")
     suspend fun token(context: Context): String? {
         PushTokenStore(context).token?.let { return it }
-        if (!initialize(context)) return BuildConfig.FCM_TOKEN.ifBlank { null }
+        if (!initialize(context)) return null
         return suspendCancellableCoroutine { continuation ->
             FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
                 val value = task.result?.takeIf(String::isNotBlank)

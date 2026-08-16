@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using GameCollector.Api.Tests.Infrastructure;
@@ -19,7 +20,7 @@ public sealed class MediaWorkflowTests(GameCollectorApiFactory factory) : IClass
     private readonly HttpClient _client = factory.CreateClient();
 
     [Fact]
-    public async Task OwnerCanUploadValidatedImageAndThumbnailBecomesReady()
+    public async Task OwnerCanUploadValidatedImageThroughApiAndThumbnailBecomesReady()
     {
         var context = await CreatePendingGameAsync();
         using var intentRequest = Request(HttpMethod.Post, ApiRoutes.V1 + "/media/upload-intents", context);
@@ -31,10 +32,11 @@ public sealed class MediaWorkflowTests(GameCollectorApiFactory factory) : IClass
         Assert.NotNull(intent);
         Assert.True(intent.ExpiresAtUtc > DateTime.UtcNow);
 
-        factory.ObjectStorage.Upload(intent.UploadUrl, OnePixelPng);
-        using var completeRequest = Request(HttpMethod.Post, $"{ApiRoutes.V1}/media/{intent.MediaId}/complete", context);
-        using var completeResponse = await _client.SendAsync(completeRequest);
-        Assert.Equal(HttpStatusCode.Accepted, completeResponse.StatusCode);
+        using var uploadRequest = Request(HttpMethod.Put, $"{ApiRoutes.V1}/media/{intent.MediaId}/content", context);
+        uploadRequest.Content = new ByteArrayContent(OnePixelPng);
+        uploadRequest.Content.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+        using var uploadResponse = await _client.SendAsync(uploadRequest);
+        Assert.Equal(HttpStatusCode.Accepted, uploadResponse.StatusCode);
 
         GameImageDto? image = null;
         for (var attempt = 0; attempt < 20; attempt++)

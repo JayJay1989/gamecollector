@@ -15,10 +15,6 @@ gamecollector.oidcIssuer=https://sso.buildserver.be/realms/Buildserver
 gamecollector.oidcClientId=gamecollector-android
 gamecollector.oidcRedirectUri=com.gamecollector.app:/oauth2redirect
 gamecollector.apiBaseUrl=https://gc.lateur.pro/
-gamecollector.firebaseApplicationId=<firebase-mobile-sdk-app-id>
-gamecollector.firebaseApiKey=<firebase-web-api-key>
-gamecollector.firebaseProjectId=<firebase-project-id>
-gamecollector.firebaseSenderId=<firebase-sender-id>
 gamecollector.appLinkHost=cards.example.com
 
 gamecollector.signing.storeFile=C:/secure/gamecollector-upload.jks
@@ -28,6 +24,8 @@ gamecollector.signing.keyPassword=<secret>
 ```
 
 Restrict access to this file and the keystore. Keep encrypted, access-tested backups of the keystore and credentials in separate locations. Never copy them into the repository, CI logs, or release artifacts.
+
+The production Firebase client configuration is read from `android/app/src/release/google-services.json`; the debug configuration at `android/app/src/debug/google-services.json` is not used in release builds. The API service-account JSON is a separate secret and must never be placed in either Android source directory.
 
 ## 2. Verify and build
 

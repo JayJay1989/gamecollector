@@ -6,6 +6,7 @@ namespace GameCollector.Application.Media;
 public interface IMediaService
 {
     Task<Result<UploadIntentDto>> CreateUploadIntentAsync(CreateUploadIntentRequest request, CancellationToken cancellationToken = default);
+    Task<Result<GameImageDto>> UploadAsync(Guid mediaId, string? contentType, ReadOnlyMemory<byte> content, CancellationToken cancellationToken = default);
     Task<Result<GameImageDto>> CompleteAsync(Guid mediaId, CancellationToken cancellationToken = default);
     Task<Result<GameImageDto>> GetAsync(Guid mediaId, CancellationToken cancellationToken = default);
 }
