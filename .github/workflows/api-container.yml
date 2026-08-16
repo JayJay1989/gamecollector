@@ -11,6 +11,8 @@ on:
       - "global.json"
       - ".github/workflows/api-container.yml"
   push:
+    branches:
+      - "**"
     paths:
       - "src/**"
       - "tests/**"
