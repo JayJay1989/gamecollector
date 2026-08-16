@@ -104,6 +104,21 @@ jobs:
           labels: |
             org.opencontainers.image.title=Game Collector API
 
+      - name: Determine .NET application version
+        id: app_version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]] || {
+              echo "Tag $GITHUB_REF_NAME does not contain a valid semantic version." >&2
+              exit 1
+            }
+          else
+            version="0.0.0-ci.${GITHUB_RUN_NUMBER}"
+          fi
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
       - name: Build and push image
         uses: docker/build-push-action@v7
         with:
@@ -113,6 +128,6 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            APP_VERSION=${{ steps.meta.outputs.version }}
+            APP_VERSION=${{ steps.app_version.outputs.value }}
           cache-from: type=gha,scope=gamecollector-api
           cache-to: type=gha,mode=max,scope=gamecollector-api
