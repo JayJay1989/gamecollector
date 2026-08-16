@@ -6,7 +6,7 @@
 *.suo
 TestResults/
 coverage/
-data/
+/data/
 *.db
 *.db-shm
 *.db-wal
