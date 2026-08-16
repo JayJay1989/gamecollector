@@ -84,6 +84,32 @@ public sealed class MediaService(
         return Result.Success(Map(image));
     }
 
+    public async Task<Result<GameImageDto>> UploadAsync(Guid mediaId, string? contentType, ReadOnlyMemory<byte> content,
+        CancellationToken cancellationToken = default)
+    {
+        var image = await images.GetByIdAsync(mediaId, cancellationToken);
+        if (image is null) return Result.Failure<GameImageDto>(ApplicationErrors.MediaNotFound);
+        var access = await GetWriteAccessAsync(image.GameId, cancellationToken);
+        if (access.Error is not null) return Result.Failure<GameImageDto>(access.Error);
+        if (image.Status != GameImageStatus.PendingUpload) return Result.Failure<GameImageDto>(ApplicationErrors.UploadNotPending);
+        if (content.IsEmpty || content.Length > MaximumFileSizeBytes || content.Length != image.RequestedFileSizeBytes ||
+            !string.Equals(contentType, image.ContentType, StringComparison.OrdinalIgnoreCase))
+            return Result.Failure<GameImageDto>(ApplicationErrors.InvalidImage);
+
+        ValidatedImage validated;
+        try { validated = imageProcessor.Validate(content); }
+        catch (InvalidDataException) { return Result.Failure<GameImageDto>(ApplicationErrors.InvalidImage); }
+        if (!string.Equals(image.ContentType, validated.ContentType, StringComparison.OrdinalIgnoreCase))
+            return Result.Failure<GameImageDto>(ApplicationErrors.InvalidImage);
+
+        await storage.WriteAsync(image.OriginalObjectKey, content, validated.ContentType, cancellationToken);
+        image.MarkProcessing(validated.ContentType, content.Length, validated.Width, validated.Height, validated.Checksum, Now());
+        await outbox.EnqueueAsync(OutboxMessageTypes.GenerateThumbnail,
+            JsonSerializer.Serialize(new { MediaId = image.Id }), cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        return Result.Success(Map(image));
+    }
+
     public async Task<Result<GameImageDto>> GetAsync(Guid mediaId, CancellationToken cancellationToken = default)
     {
         var image = await images.GetByIdAsync(mediaId, cancellationToken);

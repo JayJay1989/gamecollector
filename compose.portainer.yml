@@ -1,7 +1,10 @@
 services:
   gamecollector-api:
-    image: ${GAMECOLLECTOR_API_IMAGE:?Set an immutable Nexus image tag}
+    image: ${GAMECOLLECTOR_API_IMAGE:-dockerhub.buildserver.be/gamecollector-api:sha-c4c6ac040eddd8728532d53116dc2ec0d56e9663}
+    pull_policy: always
     restart: unless-stopped
+    env_file:
+      - stack.env
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       Authentication__Keycloak__Authority: ${KEYCLOAK_AUTHORITY}
@@ -14,7 +17,7 @@ services:
       MediaStorage__Bucket: ${MINIO_BUCKET:-gamecollector-media}
       MediaStorage__UseSsl: "false"
       Firebase__ProjectId: ${FIREBASE_PROJECT_ID:-}
-      Firebase__CredentialsPath: ${FIREBASE_CREDENTIALS_PATH:-}
+      Firebase__CredentialsPath: ${FIREBASE_CREDENTIALS_PATH:-/run/secrets/firebase/firebase-service-account.json}
       ExternalCatalog__BaseUrl: ${EXTERNAL_CATALOG_BASE_URL:-https://api.upcitemdb.com/prod/trial/}
       ExternalCatalog__TimeoutSeconds: ${EXTERNAL_CATALOG_TIMEOUT_SECONDS:-5}
       ExternalCatalog__CacheMinutes: ${EXTERNAL_CATALOG_CACHE_MINUTES:-60}
@@ -23,8 +26,8 @@ services:
       ApiHardening__RateLimitWindowSeconds: "60"
       ApiHardening__RequestTimeoutSeconds: ${API_REQUEST_TIMEOUT_SECONDS:-30}
     volumes:
-      - gamecollector-db:/data
-      - ${FIREBASE_CREDENTIALS_HOST_PATH:-/dev/null}:${FIREBASE_CREDENTIALS_PATH:-/run/secrets/firebase.json}:ro
+      - /volume1/docker/gamecollector/gamecollector-api:/data
+      - ${FIREBASE_CREDENTIALS_HOST_DIRECTORY:-/volume1/docker/gamecollector/gamecollector-api/firebase}:/run/secrets/firebase:ro
     ports:
       - "${API_BIND_ADDRESS:-127.0.0.1}:${API_PORT:-8080}:8080"
     depends_on:
@@ -45,11 +48,13 @@ services:
     image: ${MINIO_IMAGE:?Set an explicit MinIO release image}
     command: server /data --console-address ":9001"
     restart: unless-stopped
+    env_file:
+      - stack.env
     environment:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
     volumes:
-      - gamecollector-minio:/data
+      - /volume1/docker/gamecollector/minio:/data
     ports:
       - "${MINIO_CONSOLE_BIND_ADDRESS:-127.0.0.1}:${MINIO_CONSOLE_PORT:-9001}:9001"
     healthcheck:
@@ -59,7 +64,3 @@ services:
       retries: 3
     security_opt:
       - no-new-privileges:true
-
-volumes:
-  gamecollector-db:
-  gamecollector-minio:

@@ -11,14 +11,10 @@ gamecollector.oidcIssuer=https://sso.buildserver.be/realms/Buildserver
 gamecollector.oidcClientId=gamecollector-android
 gamecollector.oidcRedirectUri=com.gamecollector.app:/oauth2redirect
 gamecollector.apiBaseUrl=https://gc.lateur.pro/
-gamecollector.firebaseApplicationId=<firebase-mobile-sdk-app-id>
-gamecollector.firebaseApiKey=<firebase-web-api-key>
-gamecollector.firebaseProjectId=<firebase-project-id>
-gamecollector.firebaseSenderId=<firebase-sender-id>
 gamecollector.appLinkHost=cards.example.com
 ```
 
-For temporary local development without a Firebase project, `gamecollector.fcmToken` can still provide a fixed token. Debug builds fall back to an explicitly marked deferred token when neither Firebase configuration nor a fixed token is present; release builds require a real token.
+Firebase is configured per build variant through `android/app/src/debug/google-services.json` and `android/app/src/release/google-services.json`. The Google Services Gradle plugin selects the matching file automatically; Firebase configuration is no longer supplied through Gradle properties. Debug builds can temporarily use an explicitly marked deferred token while FCM creates the device token, while release builds require a real FCM token.
 
 In Keycloak, configure `gamecollector-android` as a public OIDC client with Authorization Code flow, PKCE S256, and the exact redirect URI above. Do not create or embed a client secret for the Android app.
 

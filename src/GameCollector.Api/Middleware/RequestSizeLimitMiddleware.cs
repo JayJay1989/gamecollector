@@ -1,5 +1,6 @@
 using GameCollector.Api.Configuration;
 using GameCollector.Contracts.Api;
+using Microsoft.AspNetCore.Http.Metadata;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
@@ -9,7 +10,9 @@ public sealed class RequestSizeLimitMiddleware(RequestDelegate next, IOptions<Ap
 {
     public async Task InvokeAsync(HttpContext context)
     {
-        if (context.Request.ContentLength > options.Value.MaximumRequestBodyBytes)
+        var endpointLimit = context.GetEndpoint()?.Metadata.GetMetadata<IRequestSizeLimitMetadata>()?.MaxRequestBodySize;
+        var maximumBytes = endpointLimit ?? options.Value.MaximumRequestBodyBytes;
+        if (context.Request.ContentLength > maximumBytes)
         {
             var problem = new ProblemDetails
             {
