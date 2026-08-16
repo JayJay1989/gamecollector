@@ -36,7 +36,7 @@ android {
         buildConfigField("String", "OIDC_ISSUER", quotedProperty("gamecollector.oidcIssuer", "https://sso.buildserver.be/realms/Buildserver"))
         buildConfigField("String", "OIDC_CLIENT_ID", quotedProperty("gamecollector.oidcClientId", "gamecollector-android"))
         buildConfigField("String", "OIDC_REDIRECT_URI", quotedProperty("gamecollector.oidcRedirectUri", "com.gamecollector.app:/oauth2redirect"))
-        buildConfigField("String", "API_BASE_URL", quotedProperty("gamecollector.apiBaseUrl", "https://api.example.com/"))
+        buildConfigField("String", "API_BASE_URL", quotedProperty("gamecollector.apiBaseUrl", "https://gc.lateur.pro/"))
         buildConfigField("String", "FCM_TOKEN", quotedProperty("gamecollector.fcmToken", ""))
         buildConfigField("String", "FIREBASE_APPLICATION_ID", quotedProperty("gamecollector.firebaseApplicationId", ""))
         buildConfigField("String", "FIREBASE_API_KEY", quotedProperty("gamecollector.firebaseApiKey", ""))

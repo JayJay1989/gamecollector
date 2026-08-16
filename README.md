@@ -10,7 +10,7 @@ The Android project is in `android`. Configure these values in your user-level G
 gamecollector.oidcIssuer=https://sso.buildserver.be/realms/Buildserver
 gamecollector.oidcClientId=gamecollector-android
 gamecollector.oidcRedirectUri=com.gamecollector.app:/oauth2redirect
-gamecollector.apiBaseUrl=https://api.example.com/
+gamecollector.apiBaseUrl=https://gc.lateur.pro/
 gamecollector.firebaseApplicationId=<firebase-mobile-sdk-app-id>
 gamecollector.firebaseApiKey=<firebase-web-api-key>
 gamecollector.firebaseProjectId=<firebase-project-id>
