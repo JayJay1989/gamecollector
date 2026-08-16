@@ -19,6 +19,35 @@ public sealed class ModerationWorkflowTests(GameCollectorApiFactory factory) : I
     private readonly HttpClient _client = factory.CreateClient();
 
     [Fact]
+    public async Task UserCanListEditAndDeleteOwnDraftSubmission()
+    {
+        var submitter = await CreateUserAsync("Draft Owner");
+        using var createRequest = UserRequest(HttpMethod.Post, ApiRoutes.V1 + "/game-submissions", submitter);
+        createRequest.Content = JsonContent.Create(Submission("Disposable Draft"));
+        using var createResponse = await _client.SendAsync(createRequest);
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var created = await createResponse.Content.ReadFromJsonAsync<GameSubmissionDto>();
+
+        using var listRequest = UserRequest(HttpMethod.Get, ApiRoutes.V1 + "/game-submissions/mine", submitter);
+        using var listResponse = await _client.SendAsync(listRequest);
+        var mine = await listResponse.Content.ReadFromJsonAsync<List<GameSubmissionDto>>();
+        Assert.Contains(mine!, item => item.Game.Id == created!.Game.Id && item.Game.ModerationStatus == "Draft");
+
+        using var updateRequest = UserRequest(HttpMethod.Put, $"{ApiRoutes.V1}/game-submissions/{created!.Game.Id}", submitter);
+        updateRequest.Content = JsonContent.Create(Submission("Edited Draft", created.Game.Revision));
+        using var updateResponse = await _client.SendAsync(updateRequest);
+        Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
+
+        using var deleteRequest = UserRequest(HttpMethod.Delete, $"{ApiRoutes.V1}/game-submissions/{created.Game.Id}", submitter);
+        using var deleteResponse = await _client.SendAsync(deleteRequest);
+        Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+
+        using var getRequest = UserRequest(HttpMethod.Get, $"{ApiRoutes.V1}/game-submissions/{created.Game.Id}", submitter);
+        using var getResponse = await _client.SendAsync(getRequest);
+        Assert.Equal(HttpStatusCode.NotFound, getResponse.StatusCode);
+    }
+
+    [Fact]
     public async Task SubmissionMovesThroughChangesAndApprovalWithAuditHistory()
     {
         var submitter = await CreateUserAsync("Submitter");

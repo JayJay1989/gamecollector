@@ -56,11 +56,13 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gamecollector.core.designsystem.GameCollectorTheme
 import com.gamecollector.core.network.CollectionInvitation
+import com.gamecollector.core.network.AdminModerationDecision
 import com.gamecollector.core.network.CollectionMember
 import com.gamecollector.core.network.CollectionRole
 import com.gamecollector.core.network.CollectionSummary
 import com.gamecollector.core.network.GameDetails
 import com.gamecollector.core.network.GameSummary
+import com.gamecollector.core.network.GameSubmission
 import com.gamecollector.core.network.UserProfile
 import com.gamecollector.core.network.UserSearchResult
 import com.gamecollector.core.database.LocalNotification
@@ -86,6 +88,9 @@ class MainActivity : ComponentActivity() {
                         home = viewModel::showHome,
                         profile = viewModel::showProfile,
                         settings = viewModel::showSettings,
+                        admin = viewModel::showAdmin,
+                        openAdminSubmission = viewModel::openAdminSubmission,
+                        moderateAdminSubmission = viewModel::moderateAdminSubmission,
                         updateProfile = viewModel::updateProfile,
                         createCollection = viewModel::createCollection,
                         selectCollection = viewModel::selectCollection,
@@ -115,6 +120,9 @@ class MainActivity : ComponentActivity() {
                         drafts = viewModel::showDrafts,
                         createDraft = viewModel::createDraft,
                         openDraft = viewModel::openDraft,
+                        openServerSubmission = viewModel::openServerSubmission,
+                        saveServerSubmission = viewModel::saveServerSubmission,
+                        deleteServerSubmission = viewModel::deleteServerSubmission,
                         saveDraft = viewModel::saveDraft,
                         attachDraftImage = viewModel::attachDraftImage,
                         submitDraft = viewModel::submitDraft,
@@ -149,6 +157,9 @@ private data class AppActions(
     val home: () -> Unit,
     val profile: () -> Unit,
     val settings: () -> Unit,
+    val admin: () -> Unit,
+    val openAdminSubmission: (String) -> Unit,
+    val moderateAdminSubmission: (AdminModerationDecision, String?) -> Unit,
     val updateProfile: (String, String) -> Unit,
     val createCollection: (String) -> Unit,
     val selectCollection: (String) -> Unit,
@@ -178,6 +189,9 @@ private data class AppActions(
     val drafts: () -> Unit,
     val createDraft: () -> Unit,
     val openDraft: (String) -> Unit,
+    val openServerSubmission: (String) -> Unit,
+    val saveServerSubmission: (ServerSubmissionForm) -> Unit,
+    val deleteServerSubmission: (String) -> Unit,
     val saveDraft: (DraftForm, Int) -> Unit,
     val attachDraftImage: (String, Uri) -> Unit,
     val submitDraft: (DraftForm) -> Unit,
@@ -216,7 +230,16 @@ private fun GameCollectorApp(state: MainUiState, actions: AppActions) {
                     AppPage.Catalog -> CatalogScreen(state, actions)
                     AppPage.Game -> GameScreen(state, actions)
                     AppPage.Scanner -> ScannerEntryScreen(actions)
-                    AppPage.Drafts -> DraftListScreen(state.drafts, actions.openDraft, actions.createDraft, actions.deleteDraft, actions.home)
+                    AppPage.Drafts -> DraftListScreen(
+                        state.drafts,
+                        state.serverSubmissions,
+                        actions.openDraft,
+                        actions.openServerSubmission,
+                        actions.createDraft,
+                        actions.deleteDraft,
+                        actions.deleteServerSubmission,
+                        actions.home,
+                    )
                     AppPage.DraftEditor -> state.selectedDraft?.let { draft ->
                         DraftEditorScreen(
                             draft,
@@ -228,6 +251,19 @@ private fun GameCollectorApp(state: MainUiState, actions: AppActions) {
                             actions.submitDraft,
                             actions.drafts,
                         )
+                    } ?: LoadingScreen()
+                    AppPage.ServerSubmissionEditor -> state.selectedServerSubmission?.let { submission ->
+                        ServerSubmissionEditorScreen(
+                            submission,
+                            state.languages,
+                            state.tags,
+                            actions.saveServerSubmission,
+                            actions.drafts,
+                        )
+                    } ?: LoadingScreen()
+                    AppPage.Admin -> AdminQueueScreen(state, actions)
+                    AppPage.AdminSubmission -> state.selectedAdminSubmission?.let {
+                        AdminSubmissionScreen(it, actions)
                     } ?: LoadingScreen()
                 }
                 state.message?.let {
@@ -341,7 +377,92 @@ private fun HomeScreen(state: MainUiState, actions: AppActions) {
                 }
                 OutlinedButton(onClick = actions.drafts) { Text("Submissions") }
                 OutlinedButton(onClick = actions.corrections) { Text("Corrections") }
+                if (state.isAdministrator) {
+                    OutlinedButton(onClick = actions.admin) {
+                        Text("Admin (${state.adminSubmissions.size})")
+                    }
+                }
                 TextButton(onClick = actions.signOut) { Text("Sign out") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AdminQueueScreen(state: MainUiState, actions: AppActions) {
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxSize()) {
+        item {
+            Header("Pending approvals", actions.home)
+            Text("${state.adminSubmissions.size} game${if (state.adminSubmissions.size == 1) "" else "s"} waiting for review")
+            OutlinedButton(onClick = actions.admin) { Text("Refresh") }
+        }
+        if (state.adminSubmissions.isEmpty()) {
+            item { Text("There are no pending game submissions.") }
+        }
+        items(state.adminSubmissions, key = { it.game.id }) { submission ->
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = { actions.openAdminSubmission(submission.game.id) },
+            ) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(submission.game.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    submission.game.publisher?.let { Text(it) }
+                    Text("Revision ${submission.game.revision} · ${submission.game.moderationStatus}")
+                    Text("Review submission", color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AdminSubmissionScreen(submission: GameSubmission, actions: AppActions) {
+    var comment by rememberSaveable(submission.game.id) { mutableStateOf("") }
+    val game = submission.game
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxSize()) {
+        item { Header("Review game", actions.admin) }
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(game.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                    game.publisher?.let { Text("Publisher: $it") }
+                    game.releaseYear?.let { Text("Release year: $it") }
+                    game.description?.let { Text(it) }
+                    val players = listOfNotNull(game.minimumPlayers, game.maximumPlayers).joinToString("–")
+                    if (players.isNotBlank()) Text("Players: $players")
+                    game.minimumAge?.let { Text("Minimum age: $it") }
+                    val playingTime = listOfNotNull(game.minimumPlayingTimeMinutes, game.maximumPlayingTimeMinutes).joinToString("–")
+                    if (playingTime.isNotBlank()) Text("Playing time: $playingTime minutes")
+                    if (game.barcodes.isNotEmpty()) Text("Barcode: ${game.barcodes.joinToString()}")
+                    if (game.languages.isNotEmpty()) Text("Languages: ${game.languages.joinToString { it.name }}")
+                    if (game.tags.isNotEmpty()) Text("Tags: ${game.tags.joinToString { it.name }}")
+                    Text("Revision ${game.revision} · ${game.moderationStatus}")
+                }
+            }
+        }
+        item {
+            OutlinedTextField(
+                value = comment,
+                onValueChange = { comment = it },
+                label = { Text("Comment to submitter") },
+                supportingText = { Text("Required when requesting changes or rejecting.") },
+                minLines = 3,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        item {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { actions.moderateAdminSubmission(AdminModerationDecision.Approve, comment) }) {
+                    Text("Approve")
+                }
+                OutlinedButton(
+                    onClick = { actions.moderateAdminSubmission(AdminModerationDecision.NeedsChanges, comment) },
+                    enabled = comment.isNotBlank(),
+                ) { Text("Request changes") }
+                OutlinedButton(
+                    onClick = { actions.moderateAdminSubmission(AdminModerationDecision.Reject, comment) },
+                    enabled = comment.isNotBlank(),
+                ) { Text("Reject") }
             }
         }
     }

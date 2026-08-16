@@ -227,6 +227,43 @@ class GameCollectorApiTests {
         assertEquals("image/jpeg", request.body?.contentType().toString())
     }
 
+    @Test
+    fun adminModerationListsPendingGamesAndSendsRevisionProtectedDecision() = runBlocking {
+        val submission = """{"game":$GAME,"submittedByUserId":"user-1","moderationComment":null,"approvedByUserId":null,"approvedAtUtc":null,"createdAtUtc":"2026-01-01T00:00:00Z","updatedAtUtc":"2026-01-01T00:00:00Z"}"""
+        val transport = TestTransport(ResponseSpec(200, "[$submission]"), ResponseSpec(200, submission))
+        val api = api(transport)
+
+        val queue = api.listAdminSubmissions("device-123")
+        val reviewed = api.moderateAdminSubmission(
+            "device-123", "game-1", AdminModerationDecision.NeedsChanges, 7, "Add a back image.",
+        )
+
+        assertTrue(queue is ApiResult.Success && queue.value.single().game.title == "UNO Flip!")
+        assertTrue(reviewed is ApiResult.Success)
+        assertEquals("Pending", transport.requests[0].url.queryParameter("status"))
+        assertEquals("/api/v1/admin/submissions/game-1/needs-changes", transport.requests[1].url.encodedPath)
+        val body = JSONObject(transport.requests[1].bodyUtf8())
+        assertEquals(7, body.getLong("expectedRevision"))
+        assertEquals("Add a back image.", body.getString("comment"))
+        assertTrue(transport.requests.all { it.header("X-Device-Id") == "device-123" })
+    }
+
+    @Test
+    fun personalSubmissionListAndDeleteUseServerResources() = runBlocking {
+        val submission = """{"game":$GAME,"submittedByUserId":"user-1","moderationComment":null,"approvedByUserId":null,"approvedAtUtc":null,"createdAtUtc":"2026-01-01T00:00:00Z","updatedAtUtc":"2026-01-01T00:00:00Z"}"""
+        val transport = TestTransport(ResponseSpec(200, "[$submission]"), ResponseSpec(204, ""))
+        val api = api(transport)
+
+        val listed = api.listMySubmissions("device-123")
+        val deleted = api.deleteSubmission("device-123", "game-1")
+
+        assertTrue(listed is ApiResult.Success && listed.value.single().game.id == "game-1")
+        assertTrue(deleted is ApiResult.Success)
+        assertEquals("/api/v1/game-submissions/mine", transport.requests[0].url.encodedPath)
+        assertEquals("DELETE", transport.requests[1].method)
+        assertEquals("/api/v1/game-submissions/game-1", transport.requests[1].url.encodedPath)
+    }
+
     private fun api(transport: TestTransport) = GameCollectorApi(
         "https://api.example.test",
         AccessTokenProvider { "access-token" },

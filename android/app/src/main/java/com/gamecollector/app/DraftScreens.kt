@@ -38,13 +38,17 @@ import com.gamecollector.core.data.stringList
 import com.gamecollector.core.database.LocalGameDraft
 import com.gamecollector.core.database.PendingMediaUpload
 import com.gamecollector.core.network.ReferenceData
+import com.gamecollector.core.network.GameSubmission
 
 @Composable
 internal fun DraftListScreen(
     drafts: List<LocalGameDraft>,
+    serverSubmissions: List<GameSubmission>,
     onOpen: (String) -> Unit,
+    onOpenServer: (String) -> Unit,
     onCreate: () -> Unit,
     onDelete: (String) -> Unit,
+    onDeleteServer: (String) -> Unit,
     onBack: () -> Unit,
 ) {
     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxSize()) {
@@ -53,7 +57,35 @@ internal fun DraftListScreen(
             Text("Drafts and selected photos stay on this device until their resumable upload completes.")
             Button(onClick = onCreate, modifier = Modifier.padding(top = 8.dp)) { Text("New game draft") }
         }
-        if (drafts.isEmpty()) item { Text("No drafts yet.") }
+        if (serverSubmissions.isNotEmpty()) item { Text("On the server", style = MaterialTheme.typography.titleMedium) }
+        items(serverSubmissions, key = { "server-${it.game.id}" }) { submission ->
+            var confirmDelete by rememberSaveable(submission.game.id) { mutableStateOf(false) }
+            val editable = submission.game.moderationStatus in setOf("Draft", "NeedsChanges")
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(submission.game.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text("${submission.game.moderationStatus} · Server revision ${submission.game.revision}")
+                    submission.moderationComment?.let { Text("Moderator: $it") }
+                    if (editable) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = { onOpenServer(submission.game.id) }) { Text("Edit") }
+                            if (!confirmDelete) TextButton(onClick = { confirmDelete = true }) { Text("Delete from server") }
+                        }
+                        if (confirmDelete) {
+                            Text("Permanently delete this server draft and its uploaded images?")
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(onClick = { onDeleteServer(submission.game.id) }) { Text("Confirm delete") }
+                                TextButton(onClick = { confirmDelete = false }) { Text("Cancel") }
+                            }
+                        }
+                    } else {
+                        Text("This submission cannot be edited while it is ${submission.game.moderationStatus.lowercase()}.")
+                    }
+                }
+            }
+        }
+        if (drafts.isNotEmpty()) item { Text("On this device", style = MaterialTheme.typography.titleMedium) }
+        if (drafts.isEmpty() && serverSubmissions.isEmpty()) item { Text("No drafts yet.") }
         items(drafts, key = { it.id }) { draft ->
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -67,6 +99,64 @@ internal fun DraftListScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+internal fun ServerSubmissionEditorScreen(
+    submission: GameSubmission,
+    languages: List<ReferenceData>,
+    tags: List<ReferenceData>,
+    onSave: (ServerSubmissionForm) -> Unit,
+    onBack: () -> Unit,
+) {
+    val game = submission.game
+    var title by rememberSaveable(game.id) { mutableStateOf(game.title) }
+    var description by rememberSaveable(game.id) { mutableStateOf(game.description.orEmpty()) }
+    var publisher by rememberSaveable(game.id) { mutableStateOf(game.publisher.orEmpty()) }
+    var barcodes by rememberSaveable(game.id) { mutableStateOf(game.barcodes.joinToString(", ")) }
+    var releaseYear by rememberSaveable(game.id) { mutableStateOf(game.releaseYear?.toString().orEmpty()) }
+    var minimumPlayers by rememberSaveable(game.id) { mutableStateOf(game.minimumPlayers?.toString().orEmpty()) }
+    var maximumPlayers by rememberSaveable(game.id) { mutableStateOf(game.maximumPlayers?.toString().orEmpty()) }
+    var minimumAge by rememberSaveable(game.id) { mutableStateOf(game.minimumAge?.toString().orEmpty()) }
+    var minimumTime by rememberSaveable(game.id) { mutableStateOf(game.minimumPlayingTimeMinutes?.toString().orEmpty()) }
+    var maximumTime by rememberSaveable(game.id) { mutableStateOf(game.maximumPlayingTimeMinutes?.toString().orEmpty()) }
+    var languageIds by remember(game.id) { mutableStateOf(game.languages.map { it.id }.toSet()) }
+    var tagIds by remember(game.id) { mutableStateOf(game.tags.map { it.id }.toSet()) }
+    val normalizedBarcodes = barcodes.split(',').map { it.filter(Char::isDigit) }.filter { it.length in 8..14 }.distinct()
+    val form = ServerSubmissionForm(
+        title.trim(), description.trim().takeIf(String::isNotBlank), publisher.trim().takeIf(String::isNotBlank),
+        releaseYear.toIntOrNull(), minimumPlayers.toIntOrNull(), maximumPlayers.toIntOrNull(), minimumAge.toIntOrNull(),
+        minimumTime.toIntOrNull(), maximumTime.toIntOrNull(), normalizedBarcodes, languageIds, tagIds,
+    )
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxSize()) {
+        item {
+            DraftHeader("Edit server draft", onBack)
+            Text("${game.moderationStatus} · Revision ${game.revision}")
+            submission.moderationComment?.let { Text("Moderator: $it", color = MaterialTheme.colorScheme.primary) }
+        }
+        item {
+            DraftSection("Game details") {
+                DraftTextField(title, { title = it.take(200) }, "Title")
+                DraftTextField(publisher, { publisher = it.take(200) }, "Publisher")
+                DraftTextField(barcodes, { barcodes = it.take(80) }, "Barcodes (comma separated)")
+                OutlinedTextField(description, { description = it.take(4000) }, label = { Text("Description") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
+            }
+        }
+        item {
+            DraftSection("Gameplay") {
+                DraftTextField(releaseYear, { releaseYear = it.filter(Char::isDigit).take(4) }, "Release year")
+                NumberPair("Players", minimumPlayers, { minimumPlayers = it }, maximumPlayers, { maximumPlayers = it })
+                DraftTextField(minimumAge, { minimumAge = it.filter(Char::isDigit).take(3) }, "Minimum age")
+                NumberPair("Playing time (minutes)", minimumTime, { minimumTime = it }, maximumTime, { maximumTime = it })
+            }
+        }
+        if (languages.isNotEmpty()) item { SelectionSection("Languages", languages, languageIds) { languageIds = it } }
+        if (tags.isNotEmpty()) item { SelectionSection("Tags", tags, tagIds) { tagIds = it } }
+        item {
+            Text("Existing uploaded images remain attached to this server draft.", style = MaterialTheme.typography.bodySmall)
+            Button(onClick = { onSave(form) }, enabled = title.isNotBlank()) { Text("Save server draft") }
         }
     }
 }

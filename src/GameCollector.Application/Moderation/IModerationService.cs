@@ -9,6 +9,7 @@ public interface IModerationService
     Task<Result<IReadOnlyList<GameSubmissionDto>>> GetMySubmissionsAsync(CancellationToken cancellationToken = default);
     Task<Result<GameSubmissionDto>> GetMySubmissionAsync(Guid id, CancellationToken cancellationToken = default);
     Task<Result<GameSubmissionDto>> UpdateSubmissionAsync(Guid id, UpsertGameSubmissionRequest request, CancellationToken cancellationToken = default);
+    Task<Result<bool>> DeleteSubmissionAsync(Guid id, CancellationToken cancellationToken = default);
     Task<Result<GameSubmissionDto>> SubmitAsync(Guid id, CancellationToken cancellationToken = default);
     Task<Result<GameChangeRequestDto>> CreateChangeRequestAsync(Guid gameId, CreateGameChangeRequestRequest request, CancellationToken cancellationToken = default);
     Task<Result<IReadOnlyList<GameChangeRequestDto>>> GetMyChangeRequestsAsync(CancellationToken cancellationToken = default);

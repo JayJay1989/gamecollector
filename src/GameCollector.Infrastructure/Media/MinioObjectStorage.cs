@@ -57,5 +57,8 @@ public sealed class MinioObjectStorage(IMinioClient client, IOptions<MediaStorag
             .WithStreamData(stream).WithObjectSize(content.Length).WithContentType(contentType), cancellationToken);
     }
 
+    public async Task DeleteAsync(string objectKey, CancellationToken cancellationToken = default) =>
+        await client.RemoveObjectAsync(new RemoveObjectArgs().WithBucket(_bucket).WithObject(objectKey), cancellationToken);
+
     private static int Seconds(TimeSpan lifetime) => checked((int)lifetime.TotalSeconds);
 }

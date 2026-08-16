@@ -1,6 +1,7 @@
 using System.Text.Json;
 using GameCollector.Application.Abstractions.Auditing;
 using GameCollector.Application.Abstractions.Authentication;
+using GameCollector.Application.Abstractions.Media;
 using GameCollector.Application.Abstractions.Persistence;
 using GameCollector.Application.Common;
 using GameCollector.Contracts.Catalog;
@@ -18,7 +19,7 @@ public sealed class ModerationService(
     ICurrentUser currentUser, IAuditContext auditContext, IUserProfileRepository users,
     ICatalogRepository catalog, IGameImageRepository images, IGameChangeRequestRepository changeRequests,
     IAuditLogRepository auditLogs, ISyncRepository sync, INotificationWriter notificationWriter,
-    IUnitOfWork unitOfWork, TimeProvider timeProvider) : IModerationService
+    IObjectStorage storage, IUnitOfWork unitOfWork, TimeProvider timeProvider) : IModerationService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -86,6 +87,32 @@ public sealed class ModerationService(
         catch (PersistenceConcurrencyException) { return Result.Failure<GameSubmissionDto>(ApplicationErrors.RevisionConflict); }
         catch (PersistenceConflictException exception) when (exception.Constraint == PersistenceConstraints.GameBarcode)
         { return Result.Failure<GameSubmissionDto>(ApplicationErrors.Validation("A barcode is already assigned to another game.")); }
+    }
+
+    public async Task<Result<bool>> DeleteSubmissionAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var access = await GetOwnedSubmissionAsync(id, cancellationToken);
+        if (access.Error is not null) return Result.Failure<bool>(access.Error);
+        var game = access.Game!;
+        if (game.ModerationStatus is not (ModerationStatus.Draft or ModerationStatus.NeedsChanges))
+            return Result.Failure<bool>(ApplicationErrors.SubmissionNotEditable);
+        var media = await images.GetForGameAsync(id, cancellationToken);
+        catalog.Remove(game);
+        await AddSyncEventAsync("user", game.SubmittedByUserId!.Value, "submissionDeleted", game.Id,
+            new { game.Id }, cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        foreach (var image in media)
+        {
+            foreach (var objectKey in new[] { image.OriginalObjectKey, image.ThumbnailObjectKey }.Where(key => !string.IsNullOrWhiteSpace(key)))
+            {
+                try { await storage.DeleteAsync(objectKey!, cancellationToken); }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    // The database deletion is authoritative; orphaned object cleanup can be retried operationally.
+                }
+            }
+        }
+        return Result.Success(true);
     }
 
     public async Task<Result<GameSubmissionDto>> SubmitAsync(Guid id, CancellationToken cancellationToken = default)
