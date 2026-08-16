@@ -258,10 +258,49 @@ class GameCollectorApi(
         parser = ::submission,
     )
 
+    suspend fun listMySubmissions(deviceId: String) = request(
+        "api/v1/game-submissions/mine",
+        deviceId = deviceId,
+        parser = { value -> value.arrayObjects().map(::submission) },
+    )
+
+    suspend fun deleteSubmission(deviceId: String, gameId: String) = request(
+        "api/v1/game-submissions/$gameId",
+        method = "DELETE",
+        deviceId = deviceId,
+        expected = setOf(204),
+        parser = { Unit },
+    )
+
     suspend fun submitGame(deviceId: String, gameId: String) = request(
         "api/v1/game-submissions/$gameId/submit",
         method = "POST",
         deviceId = deviceId,
+        parser = ::submission,
+    )
+
+    suspend fun listAdminSubmissions(deviceId: String, status: String = "Pending") = request(
+        path = baseUrl.resolve("api/v1/admin/submissions")!!.newBuilder()
+            .addQueryParameter("status", status)
+            .build(),
+        deviceId = deviceId,
+        parser = { value -> value.arrayObjects().map(::submission) },
+    )
+
+    suspend fun moderateAdminSubmission(
+        deviceId: String,
+        gameId: String,
+        decision: AdminModerationDecision,
+        expectedRevision: Long,
+        comment: String?,
+    ) = request(
+        "api/v1/admin/submissions/$gameId/${decision.path}",
+        method = "POST",
+        deviceId = deviceId,
+        body = jsonOf(
+            "expectedRevision" to expectedRevision,
+            "comment" to (comment?.trim()?.takeIf(String::isNotBlank) ?: JSONObject.NULL),
+        ),
         parser = ::submission,
     )
 
@@ -888,6 +927,9 @@ data class GameSubmissionDraft(
 )
 
 data class GameSubmission(val game: GameDetails, val moderationComment: String?)
+enum class AdminModerationDecision(val path: String) {
+    Approve("approve"), NeedsChanges("needs-changes"), Reject("reject"),
+}
 data class UploadIntent(val mediaId: String, val uploadUrl: String, val expiresAtUtc: String)
 data class GameImage(val id: String, val gameId: String, val imageType: String, val status: String, val contentType: String, val fileSizeBytes: Long?)
 

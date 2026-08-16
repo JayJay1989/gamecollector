@@ -9,6 +9,7 @@ public sealed class CatalogRepository(ApplicationDbContext dbContext) : ICatalog
     public Task<Game?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
         Detailed().SingleOrDefaultAsync(game => game.Id == id, cancellationToken);
     public async Task AddAsync(Game game, CancellationToken cancellationToken = default) => await dbContext.Games.AddAsync(game, cancellationToken);
+    public void Remove(Game game) => dbContext.Games.Remove(game);
     public async Task<IReadOnlyList<Game>> GetSubmissionsForUserAsync(Guid userId, CancellationToken cancellationToken = default) =>
         await Detailed().Where(game => game.SubmittedByUserId == userId).OrderByDescending(game => game.UpdatedAtUtc).ToListAsync(cancellationToken);
     public async Task<IReadOnlyList<Game>> GetSubmissionsForModerationAsync(ModerationStatus? status, CancellationToken cancellationToken = default)

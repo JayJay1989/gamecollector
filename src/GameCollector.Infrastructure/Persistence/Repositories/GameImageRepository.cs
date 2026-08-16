@@ -10,6 +10,8 @@ public sealed class GameImageRepository(ApplicationDbContext dbContext) : IGameI
         dbContext.GameImages.SingleOrDefaultAsync(image => image.Id == id, cancellationToken);
     public Task<GameImage?> GetByGameAndTypeAsync(Guid gameId, GameImageType imageType, CancellationToken cancellationToken = default) =>
         dbContext.GameImages.SingleOrDefaultAsync(image => image.GameId == gameId && image.ImageType == imageType, cancellationToken);
+    public async Task<IReadOnlyList<GameImage>> GetForGameAsync(Guid gameId, CancellationToken cancellationToken = default) =>
+        await dbContext.GameImages.Where(image => image.GameId == gameId).ToListAsync(cancellationToken);
     public async Task<bool> HasReadyFrontAndBackAsync(Guid gameId, CancellationToken cancellationToken = default) =>
         await dbContext.GameImages.Where(image => image.GameId == gameId && image.Status == GameImageStatus.Ready)
             .Select(image => image.ImageType).Distinct().CountAsync(cancellationToken) == 2;

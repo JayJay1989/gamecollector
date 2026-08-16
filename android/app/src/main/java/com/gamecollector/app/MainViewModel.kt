@@ -16,6 +16,7 @@ import com.gamecollector.core.database.LocalGameChangeRequest
 import com.gamecollector.core.database.SyncScopeState
 import com.gamecollector.core.database.PendingMediaUpload
 import com.gamecollector.core.network.ApiResult
+import com.gamecollector.core.network.AdminModerationDecision
 import com.gamecollector.core.network.CollectionInvitation
 import com.gamecollector.core.network.CollectionMember
 import com.gamecollector.core.network.CollectionRole
@@ -23,6 +24,7 @@ import com.gamecollector.core.network.CollectionSummary
 import com.gamecollector.core.network.GameCollectorApi
 import com.gamecollector.core.network.GameDetails
 import com.gamecollector.core.network.GameSummary
+import com.gamecollector.core.network.GameSubmission
 import com.gamecollector.core.network.GameChangePatch
 import com.gamecollector.core.network.ReferenceData
 import com.gamecollector.core.network.UserProfile
@@ -196,6 +198,48 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun showSettings() = mutableState.update {
         it.copy(page = AppPage.Settings, message = null, recentDiagnostics = AppDiagnostics(app).recent())
+    }
+
+    fun showAdmin() = launchAction { refreshAdminQueue(showPage = true) }
+
+    fun openAdminSubmission(gameId: String) = mutableState.update { current ->
+        val submission = current.adminSubmissions.firstOrNull { it.game.id == gameId }
+        if (submission == null) current.copy(message = "That submission is no longer pending.")
+        else current.copy(page = AppPage.AdminSubmission, selectedAdminSubmission = submission, message = null)
+    }
+
+    fun moderateAdminSubmission(decision: AdminModerationDecision, comment: String?) {
+        val submission = state.value.selectedAdminSubmission ?: return
+        if (decision != AdminModerationDecision.Approve && comment.isNullOrBlank()) {
+            showMessage("Enter a comment for the submitter.")
+            return
+        }
+        launchAction {
+            when (val result = api.moderateAdminSubmission(
+                deviceId, submission.game.id, decision, submission.game.revision, comment,
+            )) {
+                is ApiResult.Success -> {
+                    when (val queue = api.listAdminSubmissions(deviceId)) {
+                        is ApiResult.Success -> mutableState.update {
+                            it.copy(
+                                page = AppPage.Admin,
+                                isAdministrator = true,
+                                adminSubmissions = queue.value,
+                                selectedAdminSubmission = null,
+                                working = false,
+                                message = when (decision) {
+                                    AdminModerationDecision.Approve -> "Game approved."
+                                    AdminModerationDecision.NeedsChanges -> "Changes requested."
+                                    AdminModerationDecision.Reject -> "Submission rejected."
+                                },
+                            )
+                        }
+                        else -> fail(queue)
+                    }
+                }
+                else -> fail(result)
+            }
+        }
     }
 
     fun updateProfile(displayName: String, username: String) = launchAction {
@@ -470,9 +514,78 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun backFromGame() = mutableState.update { it.copy(page = it.gameReturnPage, message = null) }
 
-    fun showDrafts() {
-        mutableState.update { it.copy(page = AppPage.Drafts, selectedDraftId = null, message = null) }
+    fun showDrafts() = launchAction {
+        when (val result = api.listMySubmissions(deviceId)) {
+            is ApiResult.Success -> mutableState.update {
+                it.copy(
+                    page = AppPage.Drafts,
+                    selectedDraftId = null,
+                    selectedServerSubmission = null,
+                    serverSubmissions = result.value,
+                    working = false,
+                    message = null,
+                )
+            }
+            is ApiResult.NetworkError -> mutableState.update {
+                it.copy(page = AppPage.Drafts, selectedDraftId = null, working = false, message = "Server submissions could not be refreshed.")
+            }
+            else -> fail(result)
+        }
         loadReferenceData()
+    }
+
+    fun openServerSubmission(gameId: String) = mutableState.update { current ->
+        val submission = current.serverSubmissions.firstOrNull { it.game.id == gameId }
+        if (submission == null) current.copy(message = "That server submission is no longer available.")
+        else current.copy(page = AppPage.ServerSubmissionEditor, selectedServerSubmission = submission, message = null)
+    }
+
+    fun saveServerSubmission(form: ServerSubmissionForm) {
+        val current = state.value.selectedServerSubmission ?: return
+        if (form.title.isBlank()) return showMessage("Enter a game title.")
+        launchAction {
+            val request = com.gamecollector.core.network.GameSubmissionDraft(
+                title = form.title,
+                description = form.description,
+                publisher = form.publisher,
+                releaseYear = form.releaseYear,
+                minimumPlayers = form.minimumPlayers,
+                maximumPlayers = form.maximumPlayers,
+                minimumAge = form.minimumAge,
+                minimumPlayingTimeMinutes = form.minimumPlayingTimeMinutes,
+                maximumPlayingTimeMinutes = form.maximumPlayingTimeMinutes,
+                barcodes = form.barcodes,
+                languageIds = form.languageIds.toList(),
+                tagIds = form.tagIds.toList(),
+                expectedRevision = current.game.revision,
+            )
+            when (val result = api.updateSubmission(deviceId, current.game.id, request)) {
+                is ApiResult.Success -> mutableState.update { state ->
+                    state.copy(
+                        serverSubmissions = state.serverSubmissions.map { if (it.game.id == result.value.game.id) result.value else it },
+                        selectedServerSubmission = result.value,
+                        working = false,
+                        message = "Server draft updated.",
+                    )
+                }
+                else -> fail(result)
+            }
+        }
+    }
+
+    fun deleteServerSubmission(gameId: String) = launchAction {
+        when (val result = api.deleteSubmission(deviceId, gameId)) {
+            is ApiResult.Success -> mutableState.update {
+                it.copy(
+                    page = AppPage.Drafts,
+                    serverSubmissions = it.serverSubmissions.filterNot { submission -> submission.game.id == gameId },
+                    selectedServerSubmission = null,
+                    working = false,
+                    message = "Server draft permanently deleted.",
+                )
+            }
+            else -> fail(result)
+        }
     }
 
     fun createDraft() = launchAction {
@@ -640,6 +753,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     wishlistGameIds = wishlist,
                     message = if (offline) "Showing saved data offline." else null,
                 )
+                if (!offline) refreshAdminQueue(showPage = false)
                 requestSync()
                 applyPendingDeepLink()
             }
@@ -681,7 +795,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 wishlistGameIds = wishlist,
                 message = message,
             )
+            refreshAdminQueue(showPage = false)
         } else fail(if (profileResult !is ApiResult.Success) profileResult else collectionsResult)
+    }
+
+    private suspend fun refreshAdminQueue(showPage: Boolean) {
+        when (val result = api.listAdminSubmissions(deviceId)) {
+            is ApiResult.Success -> mutableState.update {
+                it.copy(
+                    page = if (showPage) AppPage.Admin else it.page,
+                    isAdministrator = true,
+                    adminSubmissions = result.value,
+                    selectedAdminSubmission = if (showPage) null else it.selectedAdminSubmission,
+                    working = false,
+                    message = null,
+                )
+            }
+            is ApiResult.Error -> if (result.statusCode == 403) {
+                mutableState.update {
+                    it.copy(
+                        page = if (showPage) AppPage.Home else it.page,
+                        isAdministrator = false,
+                        adminSubmissions = emptyList(),
+                        selectedAdminSubmission = null,
+                        working = false,
+                        message = if (showPage) "Your current login does not have the gamecollector-admin role." else it.message,
+                    )
+                }
+            } else if (showPage) fail(result) else mutableState.update { it.copy(working = false) }
+            is ApiResult.NetworkError -> if (showPage) fail(result) else mutableState.update { it.copy(working = false) }
+            ApiResult.SignedOut -> if (showPage) fail(result) else Unit
+        }
     }
 
     private suspend fun showGame(game: GameDetails, returnPage: AppPage = AppPage.Catalog) {
@@ -794,7 +938,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun Throwable.safeMessage() = message?.take(200) ?: "Authentication failed."
 }
 
-enum class AppPage { SignIn, Loading, Onboarding, Home, Profile, Settings, Collection, Invitations, Notifications, Corrections, CorrectionEditor, Catalog, Game, Scanner, Drafts, DraftEditor }
+enum class AppPage { SignIn, Loading, Onboarding, Home, Profile, Settings, Collection, Invitations, Notifications, Corrections, CorrectionEditor, Catalog, Game, Scanner, Drafts, DraftEditor, ServerSubmissionEditor, Admin, AdminSubmission }
 
 data class CorrectionForm(
     val title: String, val description: String?, val publisher: String?, val releaseYear: Int?,
@@ -829,6 +973,21 @@ data class DraftForm(
     val minimumAge: Int?,
     val minimumPlayingTimeMinutes: Int?,
     val maximumPlayingTimeMinutes: Int?,
+    val languageIds: Set<String>,
+    val tagIds: Set<String>,
+)
+
+data class ServerSubmissionForm(
+    val title: String,
+    val description: String?,
+    val publisher: String?,
+    val releaseYear: Int?,
+    val minimumPlayers: Int?,
+    val maximumPlayers: Int?,
+    val minimumAge: Int?,
+    val minimumPlayingTimeMinutes: Int?,
+    val maximumPlayingTimeMinutes: Int?,
+    val barcodes: List<String>,
     val languageIds: Set<String>,
     val tagIds: Set<String>,
 )
@@ -893,6 +1052,11 @@ data class MainUiState(
     val draftUploads: List<PendingMediaUpload> = emptyList(),
     val languages: List<ReferenceData> = emptyList(),
     val tags: List<ReferenceData> = emptyList(),
+    val isAdministrator: Boolean = false,
+    val adminSubmissions: List<GameSubmission> = emptyList(),
+    val selectedAdminSubmission: GameSubmission? = null,
+    val serverSubmissions: List<GameSubmission> = emptyList(),
+    val selectedServerSubmission: GameSubmission? = null,
     val working: Boolean = false,
     val message: String? = null,
 ) {

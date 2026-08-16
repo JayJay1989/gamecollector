@@ -6,6 +6,7 @@ public interface ICatalogRepository
 {
     Task<Game?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task AddAsync(Game game, CancellationToken cancellationToken = default);
+    void Remove(Game game);
     Task<IReadOnlyList<Game>> GetSubmissionsForUserAsync(Guid userId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<Game>> GetSubmissionsForModerationAsync(ModerationStatus? status, CancellationToken cancellationToken = default);
     Task<Game?> GetVisibleByIdAsync(Guid id, Guid userId, bool isAdministrator, CancellationToken cancellationToken = default);

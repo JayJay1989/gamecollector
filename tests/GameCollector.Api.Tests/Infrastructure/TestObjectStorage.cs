@@ -29,6 +29,12 @@ public sealed class TestObjectStorage : IObjectStorage
         return Task.CompletedTask;
     }
 
+    public Task DeleteAsync(string objectKey, CancellationToken cancellationToken = default)
+    {
+        _objects.TryRemove(objectKey, out _);
+        return Task.CompletedTask;
+    }
+
     public void Upload(Uri uploadUrl, byte[] content)
     {
         var prefix = "/upload/";
