@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0.300 AS build
 WORKDIR /source
 COPY global.json Directory.Build.props GameCollector.slnx ./
 COPY src/GameCollector.Api/GameCollector.Api.csproj src/GameCollector.Api/
