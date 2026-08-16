@@ -1,0 +1,13 @@
+@GameCollector.Api_HostAddress = http://localhost:5234
+
+GET {{GameCollector.Api_HostAddress}}/openapi/v1.json
+
+###
+
+GET {{GameCollector.Api_HostAddress}}/health/live
+
+###
+
+GET {{GameCollector.Api_HostAddress}}/health/ready
+
+###

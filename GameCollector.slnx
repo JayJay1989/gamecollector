@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/GameCollector.Api/GameCollector.Api.csproj" />
+    <Project Path="src/GameCollector.Application/GameCollector.Application.csproj" />
+    <Project Path="src/GameCollector.Contracts/GameCollector.Contracts.csproj" />
+    <Project Path="src/GameCollector.Domain/GameCollector.Domain.csproj" />
+    <Project Path="src/GameCollector.Infrastructure/GameCollector.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/GameCollector.Api.Tests/GameCollector.Api.Tests.csproj" />
+    <Project Path="tests/GameCollector.Domain.Tests/GameCollector.Domain.Tests.csproj" />
+    <Project Path="tests/GameCollector.Infrastructure.Tests/GameCollector.Infrastructure.Tests.csproj" />
+  </Folder>
+</Solution>

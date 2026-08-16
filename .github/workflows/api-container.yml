@@ -1,0 +1,116 @@
+name: API container
+
+on:
+  pull_request:
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "Dockerfile"
+      - "Directory.Build.props"
+      - "GameCollector.slnx"
+      - "global.json"
+      - ".github/workflows/api-container.yml"
+  push:
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "Dockerfile"
+      - "Directory.Build.props"
+      - "GameCollector.slnx"
+      - "global.json"
+      - ".github/workflows/api-container.yml"
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: api-container-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Test API
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore GameCollector.slnx
+
+      - name: Build
+        run: dotnet build GameCollector.slnx --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test GameCollector.slnx --configuration Release --no-build --logger "console;verbosity=normal"
+
+  publish:
+    name: Publish image to Nexus
+    needs: verify
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' &&
+      (github.ref_name == github.event.repository.default_branch || startsWith(github.ref, 'refs/tags/v')))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NEXUS_REGISTRY: ${{ vars.NEXUS_REGISTRY }}
+      NEXUS_IMAGE: ${{ vars.NEXUS_IMAGE || 'gamecollector-api' }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Validate Nexus configuration
+        shell: bash
+        env:
+          NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
+          NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+        run: |
+          test -n "$NEXUS_REGISTRY" || { echo "Repository variable NEXUS_REGISTRY is required." >&2; exit 1; }
+          test -n "$NEXUS_IMAGE" || { echo "Repository variable NEXUS_IMAGE is required." >&2; exit 1; }
+          test -n "$NEXUS_USERNAME" || { echo "Repository secret NEXUS_USERNAME is required." >&2; exit 1; }
+          test -n "$NEXUS_PASSWORD" || { echo "Repository secret NEXUS_PASSWORD is required." >&2; exit 1; }
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Nexus
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.NEXUS_REGISTRY }}
+          username: ${{ secrets.NEXUS_USERNAME }}
+          password: ${{ secrets.NEXUS_PASSWORD }}
+
+      - name: Generate image metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.NEXUS_REGISTRY }}/${{ env.NEXUS_IMAGE }}
+          tags: |
+            type=sha,format=long
+            type=ref,event=tag
+            type=raw,value=latest,enable={{is_default_branch}}
+          labels: |
+            org.opencontainers.image.title=Game Collector API
+
+      - name: Build and push image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            APP_VERSION=${{ steps.meta.outputs.version }}
+          cache-from: type=gha,scope=gamecollector-api
+          cache-to: type=gha,mode=max,scope=gamecollector-api
