@@ -30,5 +30,12 @@ public sealed class AdminCatalogController(IAdministrationService administration
     public async Task<IActionResult> Update(Guid id, AdminGameRequest request, CancellationToken cancellationToken) =>
         ToResponse(await administration.UpdateGameAsync(id, request, cancellationToken));
 
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await administration.DeleteGameAsync(id, cancellationToken);
+        return result.IsSuccess ? NoContent() : this.ToProblemResult(result.Error!);
+    }
+
     private IActionResult ToResponse<T>(Application.Common.Result<T> result) => result.IsSuccess ? Ok(result.Value) : this.ToProblemResult(result.Error!);
 }

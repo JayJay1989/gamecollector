@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.WorkManager
 import com.gamecollector.core.auth.OidcSessionManager
 import com.gamecollector.core.data.GameCollectorRepository
 import com.gamecollector.core.data.GameDraftRepository
@@ -26,6 +27,7 @@ import com.gamecollector.core.network.GameDetails
 import com.gamecollector.core.network.GameSummary
 import com.gamecollector.core.network.GameSubmission
 import com.gamecollector.core.network.GameChangePatch
+import com.gamecollector.core.network.GameChangeRequest
 import com.gamecollector.core.network.ReferenceData
 import com.gamecollector.core.network.UserProfile
 import com.gamecollector.core.network.UserSearchResult
@@ -424,18 +426,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         mutableState.update { it.copy(page = AppPage.CorrectionEditor, message = null) }
     }
 
-    fun submitCorrection(form: CorrectionForm) {
+    fun submitCorrection(form: CorrectionForm, frontImage: Uri?, backImage: Uri?) {
         val game = state.value.selectedGame ?: return
-        val patch = correctionPatch(game, form) ?: return showMessage("Change at least one field before submitting.")
+        val patch = correctionPatch(game, form)
+        if (patch == null && frontImage == null && backImage == null) return showMessage("Change at least one field or image before submitting.")
         if (form.title.isBlank()) return showMessage("A game title is required.")
         if (!validPositiveRange(form.minimumPlayers, form.maximumPlayers) || !validPositiveRange(form.minimumPlayingTimeMinutes, form.maximumPlayingTimeMinutes)) {
             return showMessage("Minimum values must not exceed maximum values, and all ranges must be positive.")
         }
         if (form.minimumAge != null && form.minimumAge !in 0..99) return showMessage("Minimum age must be between 0 and 99.")
         launchAction {
-            when (val result = api.createChangeRequest(deviceId, game.id, patch)) {
+            when (val result = api.createChangeRequest(deviceId, game.id, patch ?: GameChangePatch(), frontImage != null || backImage != null)) {
                 is ApiResult.Success -> {
                     repository.cacheChangeRequest(result.value)
+                    for ((type, uri) in listOf("Front" to frontImage, "Back" to backImage)) {
+                        if (uri == null) continue
+                        val upload = readCorrectionImage(uri)?.let { (contentType, bytes) ->
+                            api.uploadChangeRequestImage(deviceId, result.value.id, type, contentType, bytes)
+                        } ?: return@launchAction showError("The $type image could not be read or is larger than 10 MB.")
+                        if (upload !is ApiResult.Success) return@launchAction fail(upload)
+                    }
+                    when (val refreshed = api.listMyChangeRequests(deviceId)) {
+                        is ApiResult.Success -> refreshed.value.forEach { repository.cacheChangeRequest(it) }
+                        else -> Unit
+                    }
                     mutableState.update { it.copy(page = AppPage.Corrections, working = false, message = "Correction submitted for review.") }
                 }
                 else -> fail(result)
@@ -754,12 +768,91 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun signOutWithMessage(message: String) {
-        session.signOut()
+        mutableState.value = MainUiState(page = AppPage.Loading, message = "Signing out…")
         viewModelScope.launch {
-            repository.clearAll()
-            withContext(Dispatchers.IO) { DraftMediaFiles.clear(app) }
+            session.signOut()
+            withContext(Dispatchers.IO) {
+                runCatching { WorkManager.getInstance(app).cancelAllWork().result.get() }
+                repository.clearAll()
+                DraftMediaFiles.clear(app)
+            }
+            mutableState.value = MainUiState(page = AppPage.SignIn, message = message)
         }
-        mutableState.value = MainUiState(page = AppPage.SignIn, message = message)
+    }
+
+    fun openAdminChangeRequest(id: String) {
+        val request = state.value.adminChangeRequests.firstOrNull { it.id == id }
+            ?: return showMessage("That correction is no longer pending.")
+        launchAction {
+            mutableState.update {
+                it.copy(page = AppPage.AdminCorrection, selectedAdminChangeRequest = request,
+                    selectedCorrectionImages = emptyMap(), message = null)
+            }
+            val thumbnails = linkedMapOf<String, ByteArray>()
+            for (image in request.proposedImages) {
+                val result = api.downloadChangeRequestThumbnail(deviceId, image.id)
+                if (result is ApiResult.Success) thumbnails[image.imageType] = result.value
+            }
+            mutableState.update { it.copy(selectedCorrectionImages = thumbnails, working = false) }
+        }
+    }
+
+    fun reviewAdminChangeRequest(approve: Boolean, comment: String?) {
+        val request = state.value.selectedAdminChangeRequest ?: return
+        if (!approve && comment.isNullOrBlank()) return showMessage("Enter a rejection reason.")
+        launchAction {
+            when (val result = api.reviewAdminChangeRequest(
+                deviceId, request.id, approve, request.gameRevision, comment,
+            )) {
+                is ApiResult.Success -> {
+                    val queue = api.listAdminChangeRequests(deviceId)
+                    mutableState.update {
+                        it.copy(
+                            page = AppPage.Admin,
+                            adminChangeRequests = (queue as? ApiResult.Success)?.value
+                                ?: it.adminChangeRequests.filterNot { item -> item.id == request.id },
+                            selectedAdminChangeRequest = null,
+                            selectedCorrectionImages = emptyMap(),
+                            working = false,
+                            message = if (approve) "Correction approved." else "Correction rejected.",
+                        )
+                    }
+                }
+                else -> fail(result)
+            }
+        }
+    }
+
+    private suspend fun readCorrectionImage(uri: Uri): Pair<String, ByteArray>? = withContext(Dispatchers.IO) {
+        val contentType = app.contentResolver.getType(uri)?.lowercase()
+            ?.takeIf { it in setOf("image/jpeg", "image/png", "image/webp") } ?: return@withContext null
+        val bytes = app.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return@withContext null
+        bytes.takeIf { it.isNotEmpty() && it.size <= 10 * 1024 * 1024 }?.let { contentType to it }
+    }
+
+    fun deleteAdminGame() {
+        val game = state.value.selectedGame ?: return
+        if (!state.value.isAdministrator) return showMessage("Administrator access is required.")
+        val returnPage = state.value.gameReturnPage
+        launchAction {
+            when (val result = api.deleteAdminGame(deviceId, game.id)) {
+                is ApiResult.Success -> {
+                    repository.deleteGameLocally(game.id)
+                    mutableState.update {
+                        it.copy(
+                            page = returnPage,
+                            selectedGameId = null,
+                            selectedGame = null,
+                            selectedGameImages = emptyMap(),
+                            gameListThumbnails = it.gameListThumbnails - game.id,
+                            working = false,
+                            message = "${game.title} was permanently deleted.",
+                        )
+                    }
+                }
+                else -> fail(result)
+            }
+        }
     }
 
     private suspend fun refreshSessionInternal() {
@@ -857,15 +950,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun refreshAdminQueue(showPage: Boolean) {
         when (val result = api.listAdminSubmissions(deviceId)) {
-            is ApiResult.Success -> mutableState.update {
-                it.copy(
+            is ApiResult.Success -> {
+                val correctionResult = api.listAdminChangeRequests(deviceId)
+                if (correctionResult !is ApiResult.Success && showPage) return fail(correctionResult)
+                mutableState.update {
+                    it.copy(
                     page = if (showPage) AppPage.Admin else it.page,
                     isAdministrator = true,
                     adminSubmissions = result.value,
+                    adminChangeRequests = (correctionResult as? ApiResult.Success)?.value ?: it.adminChangeRequests,
                     selectedAdminSubmission = if (showPage) null else it.selectedAdminSubmission,
+                    selectedAdminChangeRequest = if (showPage) null else it.selectedAdminChangeRequest,
                     working = false,
                     message = null,
                 )
+                }
             }
             is ApiResult.Error -> if (result.statusCode == 403) {
                 mutableState.update {
@@ -873,7 +972,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         page = if (showPage) AppPage.Home else it.page,
                         isAdministrator = false,
                         adminSubmissions = emptyList(),
+                        adminChangeRequests = emptyList(),
                         selectedAdminSubmission = null,
+                        selectedAdminChangeRequest = null,
                         working = false,
                         message = if (showPage) "Your current login does not have the gamecollector-admin role." else it.message,
                     )
@@ -1018,7 +1119,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun Throwable.safeMessage() = message?.take(200) ?: "Authentication failed."
 }
 
-enum class AppPage { SignIn, Loading, Onboarding, Home, Library, Profile, Settings, Collection, Invitations, Notifications, Corrections, CorrectionEditor, Catalog, Game, Scanner, Drafts, DraftEditor, ServerSubmissionEditor, Admin, AdminSubmission }
+enum class AppPage { SignIn, Loading, Onboarding, Home, Library, Profile, Settings, Collection, Invitations, Notifications, Corrections, CorrectionEditor, Catalog, Game, Scanner, Drafts, DraftEditor, ServerSubmissionEditor, Admin, AdminSubmission, AdminCorrection }
 
 data class CorrectionForm(
     val title: String, val description: String?, val publisher: String?, val releaseYear: Int?,
@@ -1139,6 +1240,9 @@ data class MainUiState(
     val isAdministrator: Boolean = false,
     val adminSubmissions: List<GameSubmission> = emptyList(),
     val selectedAdminSubmission: GameSubmission? = null,
+    val adminChangeRequests: List<GameChangeRequest> = emptyList(),
+    val selectedAdminChangeRequest: GameChangeRequest? = null,
+    val selectedCorrectionImages: Map<String, ByteArray> = emptyMap(),
     val serverSubmissions: List<GameSubmission> = emptyList(),
     val selectedServerSubmission: GameSubmission? = null,
     val working: Boolean = false,

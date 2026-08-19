@@ -51,7 +51,7 @@ class GameCollectorDatabaseTests {
         database.catalogDao().upsertLanguages(listOf(LocalGameLanguage(game.id, "language-1", "English", "en")))
         database.catalogDao().upsertTags(listOf(LocalGameTag(game.id, "tag-1", "Card Game")))
 
-        assertEquals("UNO Flip!", database.catalogDao().observeSearch("flip").first().single().title)
+        assertEquals("UNO Flip!", database.catalogDao().observeSearch("flip").first().single().game.title)
         assertEquals(game.id, database.catalogDao().findGameIdByBarcode("887961751062"))
         val details = database.catalogDao().observeGame(game.id).first()
         assertEquals("English", details?.languages?.single()?.name)

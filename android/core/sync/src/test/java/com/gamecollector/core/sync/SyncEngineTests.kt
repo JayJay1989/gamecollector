@@ -65,7 +65,7 @@ class SyncEngineTests {
         assertTrue(database.syncDao().pendingMutations().isEmpty())
         assertEquals(3, database.syncDao().getScopes().size)
         assertEquals(setOf(GAME_ID), database.catalogDao().observeOwnedIds(COLLECTION_ID).first().toSet())
-        assertEquals("UNO Flip!", database.catalogDao().observeSearch("flip").first().single().title)
+        assertEquals("UNO Flip!", database.catalogDao().observeSearch("flip").first().single().game.title)
     }
 
     @Test
@@ -91,6 +91,28 @@ class SyncEngineTests {
         assertFalse(tombstone!!.isPresent)
         assertEquals(21, tombstone.lastServerSequence)
         assertEquals(21, database.syncDao().getScopes().single().cursor)
+    }
+
+    @Test
+    fun catalogDeletionRemovesGameAndCollectionReferences() = runBlocking {
+        seedOwnedGame(sequence = 20)
+        database.syncDao().upsertScope(SyncScopeState("catalog:", "catalog", null, 20, null))
+        val change = SyncChange(
+            sequence = 21,
+            scopeType = "catalog",
+            scopeId = null,
+            operation = "gameDeleted",
+            entityId = GAME_ID,
+            payloadJson = """{"id":"$GAME_ID","isDeleted":true}""",
+        )
+        val remote = FakeRemote(
+            pullResult = ApiResult.Success(listOf(SyncScopePage("catalog", null, 21, false, false, listOf(change)))),
+        )
+
+        assertEquals(SyncRunResult.Success, SyncEngine(database, remote, "device-1").run())
+
+        assertTrue(database.catalogDao().observeSearch("").first().isEmpty())
+        assertTrue(database.catalogDao().observeOwnedIds(COLLECTION_ID).first().isEmpty())
     }
 
     private suspend fun seedOwnedGame(sequence: Long) {

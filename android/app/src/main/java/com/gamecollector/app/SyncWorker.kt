@@ -20,17 +20,19 @@ import com.gamecollector.core.sync.GameCollectorSyncRemote
 import com.gamecollector.core.sync.SyncRunResult
 import java.time.Duration
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class SyncWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
-    override suspend fun doWork(): Result {
+    override suspend fun doWork(): Result = syncMutex.withLock {
         val session = OidcSessionManager(
             applicationContext,
             Uri.parse(BuildConfig.OIDC_ISSUER),
             BuildConfig.OIDC_CLIENT_ID,
             Uri.parse(BuildConfig.OIDC_REDIRECT_URI),
         )
-        return try {
-            if (!session.isAuthorized) return Result.success()
+        try {
+            if (!session.isAuthorized) return@withLock Result.success()
             val engine = SyncEngine(
                 GameCollectorDatabase.get(applicationContext),
                 GameCollectorSyncRemote(GameCollectorApi(BuildConfig.API_BASE_URL, session)),
@@ -45,17 +47,24 @@ class SyncWorker(context: Context, parameters: WorkerParameters) : CoroutineWork
             session.close()
         }
     }
+
+    private companion object {
+        val syncMutex = Mutex()
+    }
 }
 
 object SyncScheduler {
-    private val connected = Constraints.Builder()
+    private val immediateConstraints = Constraints.Builder()
+        .setRequiredNetworkType(NetworkType.CONNECTED)
+        .build()
+    private val periodicConstraints = Constraints.Builder()
         .setRequiredNetworkType(NetworkType.CONNECTED)
         .setRequiresBatteryNotLow(true)
         .build()
 
     fun enqueue(context: Context) {
         val request = OneTimeWorkRequestBuilder<SyncWorker>()
-            .setConstraints(connected)
+            .setConstraints(immediateConstraints)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, Duration.ofSeconds(10))
             .addTag(TAG)
             .build()
@@ -64,7 +73,7 @@ object SyncScheduler {
 
     fun ensurePeriodic(context: Context) {
         val request = PeriodicWorkRequestBuilder<SyncWorker>(6, TimeUnit.HOURS)
-            .setConstraints(connected)
+            .setConstraints(periodicConstraints)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, Duration.ofSeconds(10))
             .addTag(TAG)
             .build()

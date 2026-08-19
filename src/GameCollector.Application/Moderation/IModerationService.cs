@@ -1,5 +1,6 @@
 using GameCollector.Application.Common;
 using GameCollector.Contracts.Catalog;
+using GameCollector.Application.Media;
 
 namespace GameCollector.Application.Moderation;
 
@@ -13,6 +14,8 @@ public interface IModerationService
     Task<Result<GameSubmissionDto>> SubmitAsync(Guid id, CancellationToken cancellationToken = default);
     Task<Result<GameChangeRequestDto>> CreateChangeRequestAsync(Guid gameId, CreateGameChangeRequestRequest request, CancellationToken cancellationToken = default);
     Task<Result<IReadOnlyList<GameChangeRequestDto>>> GetMyChangeRequestsAsync(CancellationToken cancellationToken = default);
+    Task<Result<GameChangeRequestImageDto>> UploadChangeRequestImageAsync(Guid id, string imageType, string? contentType, ReadOnlyMemory<byte> content, CancellationToken cancellationToken = default);
+    Task<Result<ThumbnailContent>> GetChangeRequestImageThumbnailAsync(Guid imageId, CancellationToken cancellationToken = default);
     Task<Result<IReadOnlyList<GameSubmissionDto>>> GetModerationQueueAsync(string? status, CancellationToken cancellationToken = default);
     Task<Result<GameSubmissionDto>> GetSubmissionForModerationAsync(Guid id, CancellationToken cancellationToken = default);
     Task<Result<GameSubmissionDto>> ApproveSubmissionAsync(Guid id, ModerateSubmissionRequest request, CancellationToken cancellationToken = default);

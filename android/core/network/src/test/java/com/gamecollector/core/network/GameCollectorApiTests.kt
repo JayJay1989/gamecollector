@@ -129,6 +129,18 @@ class GameCollectorApiTests {
     }
 
     @Test
+    fun administratorCanHardDeleteGame() = runBlocking {
+        val transport = TestTransport(ResponseSpec(204, ""))
+
+        val result = api(transport).deleteAdminGame("device-123", "game-1")
+
+        assertTrue(result is ApiResult.Success)
+        assertEquals("DELETE", transport.requests.single().method)
+        assertEquals("/api/v1/admin/games/game-1", transport.requests.single().url.encodedPath)
+        assertEquals("device-123", transport.requests.single().header("X-Device-Id"))
+    }
+
+    @Test
     fun catalogSearchEncodesQueryAndParsesSummary() = runBlocking {
         val transport = TestTransport(ResponseSpec(200, "[$GAME_SUMMARY]"))
 

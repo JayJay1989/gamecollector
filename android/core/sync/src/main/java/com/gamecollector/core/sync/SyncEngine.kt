@@ -138,6 +138,7 @@ class SyncEngine(
             "notificationChanged" -> applyNotification(payload)
             "changeRequestChanged" -> applyChangeRequest(payload)
             "gameChanged" -> applyGame(payload)
+            "gameDeleted" -> database.catalogDao().deleteGame(payload.string("id") ?: change.entityId)
         }
     }
 

@@ -12,6 +12,8 @@ using GameCollector.Domain.Users;
 using GameCollector.Domain.Sync;
 using GameCollector.Application.Notifications;
 using GameCollector.Contracts.Notifications;
+using GameCollector.Contracts.Media;
+using GameCollector.Application.Media;
 
 namespace GameCollector.Application.Moderation;
 
@@ -19,9 +21,11 @@ public sealed class ModerationService(
     ICurrentUser currentUser, IAuditContext auditContext, IUserProfileRepository users,
     ICatalogRepository catalog, IGameImageRepository images, IGameChangeRequestRepository changeRequests,
     IAuditLogRepository auditLogs, ISyncRepository sync, INotificationWriter notificationWriter,
-    IObjectStorage storage, IUnitOfWork unitOfWork, TimeProvider timeProvider) : IModerationService
+    IObjectStorage storage, IImageProcessor imageProcessor, IUnitOfWork unitOfWork, TimeProvider timeProvider) : IModerationService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly HashSet<string> AcceptedImageContentTypes = new(StringComparer.OrdinalIgnoreCase)
+    { "image/jpeg", "image/png", "image/webp" };
 
     public async Task<Result<GameSubmissionDto>> CreateSubmissionAsync(UpsertGameSubmissionRequest request, CancellationToken cancellationToken = default)
     {
@@ -131,7 +135,7 @@ public sealed class ModerationService(
         if (profile is null) return Result.Failure<GameChangeRequestDto>(ApplicationErrors.ProfileNotFound);
         var game = await catalog.GetVisibleByIdAsync(gameId, profile.Id, currentUser.IsAdministrator, cancellationToken);
         if (game is null || game.ModerationStatus != ModerationStatus.Approved) return Result.Failure<GameChangeRequestDto>(ApplicationErrors.GameNotFound);
-        if (IsEmpty(request.ProposedChanges)) return Result.Failure<GameChangeRequestDto>(ApplicationErrors.EmptyChangeRequest);
+        if (IsEmpty(request.ProposedChanges) && !request.HasImageChanges) return Result.Failure<GameChangeRequestDto>(ApplicationErrors.EmptyChangeRequest);
         if (await changeRequests.HasPendingAsync(gameId, profile.Id, cancellationToken)) return Result.Failure<GameChangeRequestDto>(ApplicationErrors.ChangeRequestAlreadyPending);
         try
         {
@@ -155,6 +159,77 @@ public sealed class ModerationService(
         if (profile is null) return Result.Failure<IReadOnlyList<GameChangeRequestDto>>(ApplicationErrors.ProfileNotFound);
         var items = await changeRequests.GetForUserAsync(profile.Id, cancellationToken);
         return Result.Success<IReadOnlyList<GameChangeRequestDto>>(items.Select(MapChangeRequest).ToList());
+    }
+
+    public async Task<Result<GameChangeRequestImageDto>> UploadChangeRequestImageAsync(Guid id, string imageType,
+        string? contentType, ReadOnlyMemory<byte> content, CancellationToken cancellationToken = default)
+    {
+        if (!Enum.TryParse<GameImageType>(imageType, true, out var parsedType) ||
+            string.IsNullOrWhiteSpace(contentType) || !AcceptedImageContentTypes.Contains(contentType) ||
+            content.IsEmpty || content.Length > MediaService.MaximumFileSizeBytes)
+            return Result.Failure<GameChangeRequestImageDto>(ApplicationErrors.InvalidMediaRequest);
+        var profile = await GetProfileAsync(cancellationToken);
+        if (profile is null) return Result.Failure<GameChangeRequestImageDto>(ApplicationErrors.ProfileNotFound);
+        var item = await changeRequests.GetByIdAsync(id, cancellationToken);
+        if (item is null || item.ProposedByUserId != profile.Id)
+            return Result.Failure<GameChangeRequestImageDto>(ApplicationErrors.ChangeRequestNotFound);
+        if (item.Status != GameChangeRequestStatus.Pending)
+            return Result.Failure<GameChangeRequestImageDto>(ApplicationErrors.ChangeRequestNotPending);
+
+        ValidatedImage validated;
+        byte[] thumbnail;
+        try
+        {
+            validated = imageProcessor.Validate(content);
+            if (!string.Equals(validated.ContentType, contentType, StringComparison.OrdinalIgnoreCase))
+                return Result.Failure<GameChangeRequestImageDto>(ApplicationErrors.InvalidImage);
+            thumbnail = imageProcessor.CreateThumbnail(content);
+        }
+        catch (InvalidDataException) { return Result.Failure<GameChangeRequestImageDto>(ApplicationErrors.InvalidImage); }
+
+        var existing = item.Images.SingleOrDefault(image => image.ImageType == parsedType);
+        var imageId = existing?.Id ?? Guid.NewGuid();
+        var objectKey = $"corrections/{item.Id:N}/{parsedType.ToString().ToLowerInvariant()}/{imageId:N}-{Guid.NewGuid():N}.thumb.jpg";
+        var oldObjectKey = existing?.ObjectKey;
+        await storage.WriteAsync(objectKey, thumbnail, "image/jpeg", cancellationToken);
+        try
+        {
+            if (existing is null)
+            {
+                existing = GameChangeRequestImage.Create(imageId, item.Id, parsedType, objectKey, "image/jpeg",
+                    thumbnail.LongLength, validated.Width, validated.Height, validated.Checksum, Now());
+                item.AddImage(existing);
+            }
+            else
+            {
+                existing.Replace(objectKey, "image/jpeg", thumbnail.LongLength, validated.Width, validated.Height,
+                    validated.Checksum, Now());
+            }
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        catch
+        {
+            try { await storage.DeleteAsync(objectKey, cancellationToken); } catch { }
+            throw;
+        }
+        if (!string.IsNullOrWhiteSpace(oldObjectKey)) await DeleteObjectBestEffortAsync(oldObjectKey, cancellationToken);
+        return Result.Success(new GameChangeRequestImageDto(existing.Id, existing.ImageType.ToString()));
+    }
+
+    public async Task<Result<ThumbnailContent>> GetChangeRequestImageThumbnailAsync(Guid imageId,
+        CancellationToken cancellationToken = default)
+    {
+        var profile = await GetProfileAsync(cancellationToken);
+        if (profile is null) return Result.Failure<ThumbnailContent>(ApplicationErrors.ProfileNotFound);
+        var image = await changeRequests.GetImageByIdAsync(imageId, cancellationToken);
+        if (image is null || (!currentUser.IsAdministrator && image.ChangeRequest.ProposedByUserId != profile.Id))
+            return Result.Failure<ThumbnailContent>(ApplicationErrors.MediaNotFound);
+        try
+        {
+            var content = await storage.ReadAsync(image.ObjectKey, MediaService.MaximumFileSizeBytes, cancellationToken);
+            return Result.Success(new ThumbnailContent(content, image.ContentType));
+        }
+        catch (ObjectNotFoundException) { return Result.Failure<ThumbnailContent>(ApplicationErrors.MediaNotFound); }
     }
 
     public async Task<Result<IReadOnlyList<GameSubmissionDto>>> GetModerationQueueAsync(string? status, CancellationToken cancellationToken = default)
@@ -202,6 +277,24 @@ public sealed class ModerationService(
         {
             var before = AuditGame(access.Item.Game);
             var patch = DeserializePatch(access.Item);
+            var previousObjectKeys = new List<string>();
+            foreach (var proposedImage in access.Item.Images.ToList())
+            {
+                var currentImage = await images.GetByGameAndTypeAsync(access.Item.GameId, proposedImage.ImageType, cancellationToken);
+                if (currentImage is not null)
+                {
+                    previousObjectKeys.Add(currentImage.OriginalObjectKey);
+                    if (!string.IsNullOrWhiteSpace(currentImage.ThumbnailObjectKey)) previousObjectKeys.Add(currentImage.ThumbnailObjectKey!);
+                    images.Remove(currentImage);
+                }
+                var replacement = GameImage.Create(Guid.NewGuid(), access.Item.GameId, proposedImage.ImageType,
+                    proposedImage.ObjectKey, proposedImage.ContentType, proposedImage.FileSizeBytes, Now());
+                replacement.MarkProcessing(proposedImage.ContentType, proposedImage.FileSizeBytes, proposedImage.Width,
+                    proposedImage.Height, proposedImage.Checksum, Now());
+                replacement.MarkReady(proposedImage.ObjectKey, Now());
+                await images.AddAsync(replacement, cancellationToken);
+                access.Item.RemoveImage(proposedImage);
+            }
             access.Item.Game.ApplyApprovedCorrection(patch.Title, patch.Description, patch.Publisher, patch.ReleaseYear,
                 patch.MinimumPlayers, patch.MaximumPlayers, patch.MinimumAge, patch.MinimumPlayingTimeMinutes,
                 patch.MaximumPlayingTimeMinutes, Now());
@@ -215,6 +308,8 @@ public sealed class ModerationService(
             await notificationWriter.CreateAsync(access.Item.ProposedByUserId, NotificationTypes.SuggestedEditApproved,
                 new { ChangeRequestId = access.Item.Id, access.Item.GameId, access.Item.AdminComment }, cancellationToken);
             await unitOfWork.SaveChangesAsync(cancellationToken);
+            foreach (var objectKey in previousObjectKeys.Distinct(StringComparer.Ordinal))
+                await DeleteObjectBestEffortAsync(objectKey, cancellationToken);
             return Result.Success(MapChangeRequest(access.Item));
         }
         catch (DomainValidationException exception) { return Result.Failure<GameChangeRequestDto>(ApplicationErrors.Validation(exception.Message)); }
@@ -228,6 +323,8 @@ public sealed class ModerationService(
         if (access.Item!.Status != GameChangeRequestStatus.Pending) return Result.Failure<GameChangeRequestDto>(ApplicationErrors.ChangeRequestNotPending);
         try
         {
+            var proposedObjectKeys = access.Item.Images.Select(image => image.ObjectKey).ToList();
+            foreach (var image in access.Item.Images.ToList()) access.Item.RemoveImage(image);
             access.Item.Reject(access.Administrator!.Id, request.Comment ?? string.Empty, Now());
             await AddAuditAsync(access.Administrator.Id, "GameChangeRequestRejected", "GameChangeRequest", id,
                 null, JsonSerializer.Serialize(new { access.Item.Status, access.Item.AdminComment }, JsonOptions), cancellationToken);
@@ -236,6 +333,7 @@ public sealed class ModerationService(
             await notificationWriter.CreateAsync(access.Item.ProposedByUserId, NotificationTypes.SuggestedEditRejected,
                 new { ChangeRequestId = access.Item.Id, access.Item.GameId, access.Item.AdminComment }, cancellationToken);
             await unitOfWork.SaveChangesAsync(cancellationToken);
+            foreach (var objectKey in proposedObjectKeys) await DeleteObjectBestEffortAsync(objectKey, cancellationToken);
             return Result.Success(MapChangeRequest(access.Item));
         }
         catch (DomainValidationException exception) { return Result.Failure<GameChangeRequestDto>(ApplicationErrors.Validation(exception.Message)); }
@@ -306,6 +404,12 @@ public sealed class ModerationService(
         await sync.AddEventAsync(SyncEvent.Create(scopeType, scopeId, operation, entityId,
             JsonSerializer.Serialize(payload, JsonOptions), Now()), cancellationToken);
 
+    private async Task DeleteObjectBestEffortAsync(string objectKey, CancellationToken cancellationToken)
+    {
+        try { await storage.DeleteAsync(objectKey, cancellationToken); }
+        catch (Exception exception) when (exception is not OperationCanceledException) { }
+    }
+
     private Task<UserProfile?> GetProfileAsync(CancellationToken cancellationToken) => users.GetBySubjectAsync(
         currentUser.Subject ?? throw new InvalidOperationException("Missing subject claim."), cancellationToken);
     private DateTime Now() => timeProvider.GetUtcNow().UtcDateTime;
@@ -337,6 +441,8 @@ public sealed class ModerationService(
         game.Languages.Select(item => new ReferenceDataDto(item.Language.Id, item.Language.Name, item.Language.Code)).OrderBy(item => item.Name).ToList(),
         game.Tags.Select(item => new ReferenceDataDto(item.Tag.Id, item.Tag.Name)).OrderBy(item => item.Name).ToList());
     private static GameChangeRequestDto MapChangeRequest(GameChangeRequest item) => new(item.Id, item.GameId,
-        item.Game.Title, item.ProposedByUserId, DeserializePatch(item), item.Status.ToString(), item.AdminComment,
+        item.Game.Title, item.ProposedByUserId, item.Game.Revision, DeserializePatch(item),
+        item.Images.OrderBy(image => image.ImageType).Select(image => new GameChangeRequestImageDto(image.Id, image.ImageType.ToString())).ToList(),
+        item.Status.ToString(), item.AdminComment,
         item.ReviewedByUserId, item.ReviewedAtUtc, item.CreatedAtUtc, item.UpdatedAtUtc);
 }

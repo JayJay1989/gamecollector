@@ -17,6 +17,8 @@ namespace GameCollector.Api.Tests;
 public sealed class ModerationWorkflowTests(GameCollectorApiFactory factory) : IClassFixture<GameCollectorApiFactory>
 {
     private readonly HttpClient _client = factory.CreateClient();
+    private static readonly byte[] OnePixelPng = Convert.FromBase64String(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
 
     [Fact]
     public async Task UserCanListEditAndDeleteOwnDraftSubmission()
@@ -151,6 +153,100 @@ public sealed class ModerationWorkflowTests(GameCollectorApiFactory factory) : I
         var game = await gameResponse.Content.ReadFromJsonAsync<GameDto>();
         Assert.Equal(10, game?.MinimumAge);
         Assert.Equal(2, game?.Revision);
+    }
+
+    [Fact]
+    public async Task ProposedImageStaysStagedUntilAdministratorApprovesIt()
+    {
+        var user = await CreateUserAsync("Image Correction User");
+        var admin = await CreateUserAsync("Image Correction Admin");
+        var gameId = await AddApprovedGameAsync();
+        var oldImageId = Guid.NewGuid();
+        var oldOriginalKey = $"games/{gameId:N}/front/{oldImageId:N}.jpg";
+        var oldThumbnailKey = $"games/{gameId:N}/front/{oldImageId:N}.thumb.jpg";
+        byte[] oldOriginal = [1, 2, 3];
+        byte[] oldThumbnail = [4, 5, 6];
+        await factory.ObjectStorage.WriteAsync(oldOriginalKey, oldOriginal, "image/jpeg");
+        await factory.ObjectStorage.WriteAsync(oldThumbnailKey, oldThumbnail, "image/jpeg");
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var image = GameImage.Create(oldImageId, gameId, GameImageType.Front, oldOriginalKey, "image/jpeg", 3, DateTime.UtcNow);
+            image.MarkProcessing("image/jpeg", 3, 1, 1, new string('a', 64), DateTime.UtcNow);
+            image.MarkReady(oldThumbnailKey, DateTime.UtcNow);
+            await db.GameImages.AddAsync(image); await db.SaveChangesAsync();
+        }
+
+        using var createRequest = UserRequest(HttpMethod.Post, $"{ApiRoutes.V1}/games/{gameId}/change-requests", user);
+        createRequest.Content = JsonContent.Create(new CreateGameChangeRequestRequest(new GameChangePatchDto(), true));
+        using var createResponse = await _client.SendAsync(createRequest);
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var change = (await createResponse.Content.ReadFromJsonAsync<GameChangeRequestDto>())!;
+
+        using var uploadRequest = UserRequest(HttpMethod.Put, $"{ApiRoutes.V1}/change-requests/{change.Id}/images/Front", user);
+        uploadRequest.Content = new ByteArrayContent(OnePixelPng);
+        uploadRequest.Content.Headers.ContentType = new("image/png");
+        using var uploadResponse = await _client.SendAsync(uploadRequest);
+        Assert.Equal(HttpStatusCode.OK, uploadResponse.StatusCode);
+        var proposed = (await uploadResponse.Content.ReadFromJsonAsync<GameChangeRequestImageDto>())!;
+
+        string stagedKey;
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            Assert.Equal(oldImageId, (await db.GameImages.SingleAsync(item => item.GameId == gameId)).Id);
+            stagedKey = (await db.GameChangeRequestImages.SingleAsync(item => item.Id == proposed.Id)).ObjectKey;
+        }
+        Assert.True(factory.ObjectStorage.Exists(stagedKey));
+        Assert.True(factory.ObjectStorage.Exists(oldThumbnailKey));
+
+        using var previewRequest = UserRequest(HttpMethod.Get, $"{ApiRoutes.V1}/change-request-images/{proposed.Id}/thumbnail", admin);
+        previewRequest.Headers.Add(TestAuthenticationHandler.RolesHeader, "gamecollector-admin");
+        using var previewResponse = await _client.SendAsync(previewRequest);
+        Assert.Equal(HttpStatusCode.OK, previewResponse.StatusCode);
+
+        using var approveRequest = AdminRequest(HttpMethod.Post, $"{ApiRoutes.AdminV1}/change-requests/{change.Id}/approve", admin);
+        approveRequest.Content = JsonContent.Create(new ReviewGameChangeRequestRequest(change.GameRevision));
+        using var approveResponse = await _client.SendAsync(approveRequest);
+        Assert.Equal(HttpStatusCode.OK, approveResponse.StatusCode);
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var live = await db.GameImages.SingleAsync(item => item.GameId == gameId && item.ImageType == GameImageType.Front);
+            Assert.NotEqual(oldImageId, live.Id);
+            Assert.Equal(stagedKey, live.ThumbnailObjectKey);
+            Assert.Empty(await db.GameChangeRequestImages.Where(item => item.ChangeRequestId == change.Id).ToListAsync());
+        }
+        Assert.False(factory.ObjectStorage.Exists(oldOriginalKey));
+        Assert.False(factory.ObjectStorage.Exists(oldThumbnailKey));
+        Assert.True(factory.ObjectStorage.Exists(stagedKey));
+
+        using var rejectedCreateRequest = UserRequest(HttpMethod.Post, $"{ApiRoutes.V1}/games/{gameId}/change-requests", user);
+        rejectedCreateRequest.Content = JsonContent.Create(new CreateGameChangeRequestRequest(new GameChangePatchDto(), true));
+        using var rejectedCreateResponse = await _client.SendAsync(rejectedCreateRequest);
+        var rejectedChange = (await rejectedCreateResponse.Content.ReadFromJsonAsync<GameChangeRequestDto>())!;
+        using var rejectedUploadRequest = UserRequest(HttpMethod.Put, $"{ApiRoutes.V1}/change-requests/{rejectedChange.Id}/images/Back", user);
+        rejectedUploadRequest.Content = new ByteArrayContent(OnePixelPng);
+        rejectedUploadRequest.Content.Headers.ContentType = new("image/png");
+        using var rejectedUploadResponse = await _client.SendAsync(rejectedUploadRequest);
+        var rejectedImage = (await rejectedUploadResponse.Content.ReadFromJsonAsync<GameChangeRequestImageDto>())!;
+        string rejectedKey;
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            rejectedKey = (await db.GameChangeRequestImages.SingleAsync(item => item.Id == rejectedImage.Id)).ObjectKey;
+        }
+        using var rejectRequest = AdminRequest(HttpMethod.Post, $"{ApiRoutes.AdminV1}/change-requests/{rejectedChange.Id}/reject", admin);
+        rejectRequest.Content = JsonContent.Create(new ReviewGameChangeRequestRequest(rejectedChange.GameRevision, "The back image is unclear."));
+        using var rejectResponse = await _client.SendAsync(rejectRequest);
+        Assert.Equal(HttpStatusCode.OK, rejectResponse.StatusCode);
+        Assert.False(factory.ObjectStorage.Exists(rejectedKey));
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            Assert.False(await db.GameImages.AnyAsync(item => item.GameId == gameId && item.ImageType == GameImageType.Back));
+        }
     }
 
     private async Task<List<NotificationDto>> GetNotificationsAsync(TestUser user)

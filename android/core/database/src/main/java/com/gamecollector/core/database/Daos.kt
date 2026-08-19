@@ -62,6 +62,7 @@ interface CatalogDao {
     @Query("SELECT gameId FROM game_barcodes WHERE barcode = :barcode LIMIT 1") suspend fun findGameIdByBarcode(barcode: String): String?
     @Upsert suspend fun upsertGames(items: List<LocalGame>)
     @Query("DELETE FROM games") suspend fun clearGames()
+    @Query("DELETE FROM games WHERE id = :gameId") suspend fun deleteGame(gameId: String)
     @Upsert suspend fun upsertBarcodes(items: List<LocalGameBarcode>)
     @Upsert suspend fun upsertLanguages(items: List<LocalGameLanguage>)
     @Upsert suspend fun upsertTags(items: List<LocalGameTag>)

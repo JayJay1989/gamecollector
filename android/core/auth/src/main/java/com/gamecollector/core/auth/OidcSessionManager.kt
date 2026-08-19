@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import net.openid.appauth.AuthState
 import net.openid.appauth.AuthorizationException
 import net.openid.appauth.AuthorizationRequest
@@ -56,26 +58,35 @@ class OidcSessionManager(
         store.write(state)
     }
 
-    override suspend fun freshAccessToken(): String? = suspendCancellableCoroutine { continuation ->
-        if (!state.isAuthorized) {
-            continuation.resume(null)
-            return@suspendCancellableCoroutine
-        }
-        state.performActionWithFreshTokens(authorizationService) { accessToken, _, error ->
-            if (error != null) continuation.resumeWithException(error)
-            else {
-                store.write(state)
-                continuation.resume(accessToken)
+    override suspend fun freshAccessToken(): String? = tokenMutex.withLock {
+        // Workers and the foreground app use separate manager instances. Always reload the
+        // newest refresh token after waiting for another request to finish.
+        state = store.read()
+        suspendCancellableCoroutine { continuation ->
+            if (!state.isAuthorized) {
+                continuation.resume(null)
+                return@suspendCancellableCoroutine
+            }
+            state.performActionWithFreshTokens(authorizationService) { accessToken, _, error ->
+                if (error != null) continuation.resumeWithException(error)
+                else {
+                    store.write(state)
+                    continuation.resume(accessToken)
+                }
             }
         }
     }
 
-    fun signOut() {
+    suspend fun signOut() = tokenMutex.withLock {
         state = AuthState()
         store.clear()
     }
 
     override fun close() = authorizationService.dispose()
+
+    private companion object {
+        val tokenMutex = Mutex()
+    }
 
     private suspend fun discoverConfiguration(): AuthorizationServiceConfiguration =
         suspendCancellableCoroutine { continuation ->

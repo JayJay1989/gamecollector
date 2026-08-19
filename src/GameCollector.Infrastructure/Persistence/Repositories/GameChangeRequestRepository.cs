@@ -16,5 +16,9 @@ public sealed class GameChangeRequestRepository(ApplicationDbContext dbContext) 
         var source = Detailed(); if (status.HasValue) source = source.Where(item => item.Status == status.Value);
         return await source.OrderByDescending(item => item.CreatedAtUtc).ToListAsync(cancellationToken);
     }
-    private IQueryable<GameChangeRequest> Detailed() => dbContext.GameChangeRequests.Include(item => item.Game);
+    public Task<GameChangeRequestImage?> GetImageByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
+        dbContext.GameChangeRequestImages.Include(item => item.ChangeRequest).SingleOrDefaultAsync(item => item.Id == id, cancellationToken);
+    public async Task<IReadOnlyList<GameChangeRequestImage>> GetImagesForGameAsync(Guid gameId, CancellationToken cancellationToken = default) =>
+        await dbContext.GameChangeRequestImages.Where(item => item.ChangeRequest.GameId == gameId).ToListAsync(cancellationToken);
+    private IQueryable<GameChangeRequest> Detailed() => dbContext.GameChangeRequests.Include(item => item.Game).Include(item => item.Images);
 }

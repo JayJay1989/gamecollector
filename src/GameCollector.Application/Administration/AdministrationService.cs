@@ -2,6 +2,7 @@ using System.Text.Json;
 using GameCollector.Application.Abstractions.Auditing;
 using GameCollector.Application.Abstractions.Authentication;
 using GameCollector.Application.Abstractions.Persistence;
+using GameCollector.Application.Abstractions.Media;
 using GameCollector.Application.Common;
 using GameCollector.Application.Notifications;
 using GameCollector.Application.Sync;
@@ -18,6 +19,7 @@ public sealed class AdministrationService(
     ICurrentUser currentUser, IAuditContext auditContext, IUserProfileRepository users,
     IDeviceRegistrationRepository devices, ICollectionRepository collections,
     ICollectionGameRepository collectionGames, ICatalogRepository catalog,
+    IGameImageRepository gameImages, IGameChangeRequestRepository changeRequests, IObjectStorage objectStorage,
     IAuditLogRepository auditLogs, ISyncDiagnosticRepository diagnostics,
     ISyncEventWriter syncEvents, INotificationWriter notifications,
     IUnitOfWork unitOfWork, TimeProvider timeProvider) : IAdministrationService
@@ -176,6 +178,45 @@ public sealed class AdministrationService(
         catch (DomainValidationException exception) { return Result.Failure<GameDto>(ApplicationErrors.Validation(exception.Message)); }
         catch (PersistenceConcurrencyException) { return Result.Failure<GameDto>(ApplicationErrors.RevisionConflict); }
         catch (PersistenceConflictException) { return Result.Failure<GameDto>(ApplicationErrors.Validation("A barcode is already assigned to another game.")); }
+    }
+
+    public async Task<Result<bool>> DeleteGameAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var actor = await GetActorAsync(cancellationToken);
+        if (actor is null) return Result.Failure<bool>(ApplicationErrors.ProfileNotFound);
+        var game = await catalog.GetByIdAsync(id, cancellationToken);
+        if (game is null) return Result.Failure<bool>(ApplicationErrors.GameNotFound);
+
+        var images = await gameImages.GetForGameAsync(id, cancellationToken);
+        var proposedImages = await changeRequests.GetImagesForGameAsync(id, cancellationToken);
+        var objectKeys = images
+            .SelectMany(image => new[]
+            {
+                image.OriginalObjectKey,
+                image.ThumbnailObjectKey,
+                $"games/{image.GameId:N}/{image.ImageType.ToString().ToLowerInvariant()}/{image.Id:N}.thumb.jpg"
+            })
+            .Where(key => !string.IsNullOrWhiteSpace(key))
+            .Select(key => key!)
+            .Concat(proposedImages.Select(image => image.ObjectKey))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        // Do not remove the authoritative database row unless all known media objects
+        // have been removed (missing keys are already equivalent to deletion).
+        foreach (var objectKey in objectKeys)
+        {
+            try { await objectStorage.DeleteAsync(objectKey, cancellationToken); }
+            catch (ObjectNotFoundException) { }
+        }
+
+        var before = AuditGame(game);
+        catalog.Remove(game);
+        await syncEvents.WriteAsync("catalog", null, "gameDeleted", game.Id,
+            new { game.Id, IsDeleted = true }, cancellationToken);
+        await AddAuditAsync(actor.Id, "GameDeleted", "Game", game.Id, before, null, cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        return Result.Success(true);
     }
 
     public async Task<Result<IReadOnlyList<AdminAuditDto>>> SearchAuditAsync(string? action, string? entityType,

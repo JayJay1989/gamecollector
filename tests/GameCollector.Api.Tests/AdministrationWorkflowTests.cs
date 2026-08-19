@@ -11,12 +11,54 @@ using GameCollector.Contracts.Sync;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.EntityFrameworkCore;
+using GameCollector.Domain.Catalog;
+using GameCollector.Infrastructure.Persistence;
 
 namespace GameCollector.Api.Tests;
 
 public sealed class AdministrationWorkflowTests(GameCollectorApiFactory factory) : IClassFixture<GameCollectorApiFactory>
 {
     private readonly HttpClient _client = factory.CreateClient();
+
+    [Fact]
+    public async Task AdministratorHardDeleteRemovesGameAndStoredImages()
+    {
+        var admin = await CreateUserAsync("Deleting Administrator", activateDevice: false);
+        var request = new AdminGameRequest("Delete Me", null, null, 2026, null, null, null, null, null, [], [], []);
+        using var createRequest = Request(HttpMethod.Post, ApiRoutes.AdminV1 + "/games", admin, administrator: true);
+        createRequest.Content = JsonContent.Create(request);
+        using var createResponse = await _client.SendAsync(createRequest);
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var game = (await createResponse.Content.ReadFromJsonAsync<GameDto>())!;
+
+        const string originalKey = "games/delete-me/front/original.jpg";
+        const string thumbnailKey = "games/delete-me/front/thumbnail.jpg";
+        var image = GameImage.Create(Guid.NewGuid(), game.Id, GameImageType.Front, originalKey, "image/jpeg", 3, DateTime.UtcNow);
+        image.MarkProcessing("image/jpeg", 3, 1, 1, new string('a', 64), DateTime.UtcNow);
+        image.MarkReady(thumbnailKey, DateTime.UtcNow);
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var database = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            await database.GameImages.AddAsync(image);
+            await database.SaveChangesAsync();
+        }
+        await factory.ObjectStorage.WriteAsync(originalKey, new byte[] { 1, 2, 3 }, "image/jpeg");
+        await factory.ObjectStorage.WriteAsync(thumbnailKey, new byte[] { 4, 5, 6 }, "image/jpeg");
+
+        using var deleteRequest = Request(HttpMethod.Delete, $"{ApiRoutes.AdminV1}/games/{game.Id}", admin, administrator: true);
+        using var deleteResponse = await _client.SendAsync(deleteRequest);
+
+        Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+        Assert.False(factory.ObjectStorage.Exists(originalKey));
+        Assert.False(factory.ObjectStorage.Exists(thumbnailKey));
+        await using var verificationScope = factory.Services.CreateAsyncScope();
+        var verificationDatabase = verificationScope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        Assert.False(await verificationDatabase.Games.AnyAsync(item => item.Id == game.Id));
+        Assert.False(await verificationDatabase.GameImages.AnyAsync(item => item.GameId == game.Id));
+        Assert.True(await verificationDatabase.AuditLogs.AnyAsync(item => item.Action == "GameDeleted" && item.EntityId == game.Id));
+        Assert.True(await verificationDatabase.SyncEvents.AnyAsync(item => item.Operation == "gameDeleted" && item.EntityId == game.Id));
+    }
 
     [Fact]
     public async Task AdministratorCanManageUsersCatalogAuditAndDiagnostics()

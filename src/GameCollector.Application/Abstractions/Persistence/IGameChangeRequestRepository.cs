@@ -7,4 +7,6 @@ public interface IGameChangeRequestRepository : IRepository<GameChangeRequest, G
     Task<bool> HasPendingAsync(Guid gameId, Guid userId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<GameChangeRequest>> GetForUserAsync(Guid userId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<GameChangeRequest>> GetForModerationAsync(GameChangeRequestStatus? status, CancellationToken cancellationToken = default);
+    Task<GameChangeRequestImage?> GetImageByIdAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<GameChangeRequestImage>> GetImagesForGameAsync(Guid gameId, CancellationToken cancellationToken = default);
 }

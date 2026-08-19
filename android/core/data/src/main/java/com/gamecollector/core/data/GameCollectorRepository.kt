@@ -75,6 +75,8 @@ class GameCollectorRepository(
 
     suspend fun clearAll() = database.clearAllTables()
 
+    suspend fun deleteGameLocally(gameId: String) = database.catalogDao().deleteGame(gameId)
+
     suspend fun refreshProfile(): ApiResult<UserProfile> = api.getProfile().also { result ->
         if (result is ApiResult.Success) cacheProfile(result.value)
     }

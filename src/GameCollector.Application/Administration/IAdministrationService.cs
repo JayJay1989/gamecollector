@@ -16,6 +16,7 @@ public interface IAdministrationService
     Task<Result<GameDto>> GetGameAsync(Guid id, CancellationToken cancellationToken = default);
     Task<Result<GameDto>> CreateGameAsync(AdminGameRequest request, CancellationToken cancellationToken = default);
     Task<Result<GameDto>> UpdateGameAsync(Guid id, AdminGameRequest request, CancellationToken cancellationToken = default);
+    Task<Result<bool>> DeleteGameAsync(Guid id, CancellationToken cancellationToken = default);
     Task<Result<IReadOnlyList<AdminAuditDto>>> SearchAuditAsync(string? action, string? entityType, Guid? entityId,
         Guid? actorUserId, DateTime? fromUtc, DateTime? toUtc, int limit, CancellationToken cancellationToken = default);
     Task<Result<IReadOnlyList<SyncDiagnosticDto>>> GetSyncDiagnosticsAsync(Guid? userId, int limit, CancellationToken cancellationToken = default);

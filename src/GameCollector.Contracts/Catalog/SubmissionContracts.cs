@@ -17,8 +17,10 @@ public sealed record GameChangePatchDto(string? Title = null, string? Descriptio
     int? MaximumPlayers = null, int? MinimumAge = null, int? MinimumPlayingTimeMinutes = null,
     int? MaximumPlayingTimeMinutes = null);
 
-public sealed record CreateGameChangeRequestRequest(GameChangePatchDto ProposedChanges);
+public sealed record CreateGameChangeRequestRequest(GameChangePatchDto ProposedChanges, bool HasImageChanges = false);
 public sealed record ReviewGameChangeRequestRequest(long ExpectedGameRevision, string? Comment = null);
+public sealed record GameChangeRequestImageDto(Guid Id, string ImageType);
 public sealed record GameChangeRequestDto(Guid Id, Guid GameId, string GameTitle, Guid ProposedByUserId,
-    GameChangePatchDto ProposedChanges, string Status, string? AdminComment, Guid? ReviewedByUserId,
+    long GameRevision, GameChangePatchDto ProposedChanges, IReadOnlyList<GameChangeRequestImageDto> ProposedImages,
+    string Status, string? AdminComment, Guid? ReviewedByUserId,
     DateTime? ReviewedAtUtc, DateTime CreatedAtUtc, DateTime UpdatedAtUtc);

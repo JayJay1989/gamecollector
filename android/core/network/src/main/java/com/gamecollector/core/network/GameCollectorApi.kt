@@ -214,11 +214,11 @@ class GameCollectorApi(
         parser = ::game,
     )
 
-    suspend fun createChangeRequest(deviceId: String, gameId: String, changes: GameChangePatch) = request(
+    suspend fun createChangeRequest(deviceId: String, gameId: String, changes: GameChangePatch, hasImageChanges: Boolean = false) = request(
         "api/v1/games/$gameId/change-requests",
         method = "POST",
         deviceId = deviceId,
-        body = JSONObject().put("proposedChanges", changePatchBody(changes)),
+        body = JSONObject().put("proposedChanges", changePatchBody(changes)).put("hasImageChanges", hasImageChanges),
         expected = setOf(201),
         parser = ::changeRequest,
     )
@@ -228,6 +228,15 @@ class GameCollectorApi(
         deviceId = deviceId,
         parser = { value -> value.arrayObjects().map(::changeRequest) },
     )
+
+    suspend fun uploadChangeRequestImage(
+        deviceId: String, changeRequestId: String, imageType: String, contentType: String, bytes: ByteArray,
+    ): ApiResult<GameChangeRequestImage> = uploadBytes(
+        deviceId, "api/v1/change-requests/$changeRequestId/images/$imageType", contentType, bytes, setOf(200), ::changeRequestImage,
+    )
+
+    suspend fun downloadChangeRequestThumbnail(deviceId: String, imageId: String): ApiResult<ByteArray> =
+        downloadBytes(deviceId, "api/v1/change-request-images/$imageId/thumbnail")
 
     suspend fun lookupProduct(deviceId: String, barcode: String) = request(
         "api/v1/product-lookup/${barcode.filter(Char::isDigit)}",
@@ -287,6 +296,26 @@ class GameCollectorApi(
         parser = { value -> value.arrayObjects().map(::submission) },
     )
 
+    suspend fun listAdminChangeRequests(deviceId: String, status: String = "Pending") = request(
+        path = baseUrl.resolve("api/v1/admin/change-requests")!!.newBuilder()
+            .addQueryParameter("status", status).build(),
+        deviceId = deviceId,
+        parser = { value -> value.arrayObjects().map(::changeRequest) },
+    )
+
+    suspend fun reviewAdminChangeRequest(
+        deviceId: String, changeRequestId: String, approve: Boolean, expectedGameRevision: Long, comment: String?,
+    ) = request(
+        "api/v1/admin/change-requests/$changeRequestId/${if (approve) "approve" else "reject"}",
+        method = "POST",
+        deviceId = deviceId,
+        body = jsonOf(
+            "expectedGameRevision" to expectedGameRevision,
+            "comment" to (comment?.trim()?.takeIf(String::isNotBlank) ?: JSONObject.NULL),
+        ),
+        parser = ::changeRequest,
+    )
+
     suspend fun moderateAdminSubmission(
         deviceId: String,
         gameId: String,
@@ -302,6 +331,14 @@ class GameCollectorApi(
             "comment" to (comment?.trim()?.takeIf(String::isNotBlank) ?: JSONObject.NULL),
         ),
         parser = ::submission,
+    )
+
+    suspend fun deleteAdminGame(deviceId: String, gameId: String) = request(
+        "api/v1/admin/games/$gameId",
+        method = "DELETE",
+        deviceId = deviceId,
+        expected = setOf(204),
+        parser = { Unit },
     )
 
     suspend fun createUploadIntent(
@@ -435,6 +472,57 @@ class GameCollectorApi(
                 ApiResult.NetworkError("The thumbnail could not be downloaded.")
             }
         }
+
+    private suspend fun <T> uploadBytes(
+        deviceId: String, path: String, contentType: String, bytes: ByteArray,
+        expected: Set<Int>, parser: (String) -> T,
+    ): ApiResult<T> = withContext(Dispatchers.IO) {
+        val token = runCatching { tokens.freshAccessToken() }.getOrElse {
+            return@withContext ApiResult.NetworkError("Could not refresh the login session.")
+        } ?: return@withContext ApiResult.SignedOut
+        val url = baseUrl.resolve(path) ?: return@withContext ApiResult.NetworkError("The API URL is invalid.")
+        val request = Request.Builder().url(url)
+            .header("Authorization", "Bearer $token").header("Accept", "application/json")
+            .header("X-Device-Id", deviceId).header("X-Correlation-ID", UUID.randomUUID().toString())
+            .put(bytes.toRequestBody(contentType.toMediaType())).build()
+        try {
+            client.newCall(request).execute().use { response ->
+                val responseBody = response.body.string()
+                if (response.code in expected) runCatching { ApiResult.Success(parser(responseBody)) }
+                    .getOrElse { ApiResult.NetworkError("The API response could not be read.") }
+                else responseError(response.code, responseBody, response.header("X-Correlation-ID"))
+            }
+        } catch (_: IOException) { ApiResult.NetworkError("The image upload could not be completed.") }
+    }
+
+    private suspend fun downloadBytes(deviceId: String, path: String): ApiResult<ByteArray> = withContext(Dispatchers.IO) {
+        val token = runCatching { tokens.freshAccessToken() }.getOrElse {
+            return@withContext ApiResult.NetworkError("Could not refresh the login session.")
+        } ?: return@withContext ApiResult.SignedOut
+        val url = baseUrl.resolve(path) ?: return@withContext ApiResult.NetworkError("The API URL is invalid.")
+        val request = Request.Builder().url(url).header("Authorization", "Bearer $token")
+            .header("Accept", "image/jpeg").header("X-Device-Id", deviceId)
+            .header("X-Correlation-ID", UUID.randomUUID().toString()).get().build()
+        try {
+            client.newCall(request).execute().use { response ->
+                if (response.code == 200) response.body.bytes().takeIf(ByteArray::isNotEmpty)?.let { ApiResult.Success(it) }
+                    ?: ApiResult.NetworkError("The thumbnail response was empty.")
+                else responseError(response.code, response.body.string(), response.header("X-Correlation-ID"))
+            }
+        } catch (_: IOException) { ApiResult.NetworkError("The thumbnail could not be downloaded.") }
+    }
+
+    private fun responseError(statusCode: Int, content: String, correlationId: String?): ApiResult.Error {
+        val problem = runCatching { JSONObject(content) }.getOrNull()
+        return ApiResult.Error(
+            statusCode, problem?.optString("code")?.takeIf(String::isNotBlank),
+            problem?.optString("detail")?.takeIf(String::isNotBlank)
+                ?: problem?.optString("title")?.takeIf(String::isNotBlank)
+                ?: "The API returned HTTP $statusCode.",
+            correlationId ?: problem?.optString("correlationId")?.takeIf(String::isNotBlank)
+                ?: problem?.optString("traceId")?.takeIf(String::isNotBlank),
+        )
+    }
 
     suspend fun listLanguages(deviceId: String) = request(
         "api/v1/languages",
@@ -733,9 +821,16 @@ class GameCollectorApi(
                 changes.optNullableInt("releaseYear"), changes.optNullableInt("minimumPlayers"), changes.optNullableInt("maximumPlayers"),
                 changes.optNullableInt("minimumAge"), changes.optNullableInt("minimumPlayingTimeMinutes"), changes.optNullableInt("maximumPlayingTimeMinutes"),
             ),
+            gameRevision = json.optLong("gameRevision"),
+            proposedImages = json.optJSONArray("proposedImages")?.objects()?.map(::changeRequestImage).orEmpty(),
             status = json.getString("status"), adminComment = json.optNullableString("adminComment"),
             createdAtUtc = json.getString("createdAtUtc"), updatedAtUtc = json.getString("updatedAtUtc"),
         )
+    }
+
+    private fun changeRequestImage(value: String): GameChangeRequestImage {
+        val json = JSONObject(value)
+        return GameChangeRequestImage(json.getString("id"), json.getString("imageType"))
     }
 
     private fun submission(value: String): GameSubmission {
@@ -916,8 +1011,10 @@ data class GameChangePatch(
 )
 data class GameChangeRequest(
     val id: String, val gameId: String, val gameTitle: String, val proposedChanges: GameChangePatch,
+    val gameRevision: Long = 0, val proposedImages: List<GameChangeRequestImage> = emptyList(),
     val status: String, val adminComment: String?, val createdAtUtc: String, val updatedAtUtc: String,
 )
+data class GameChangeRequestImage(val id: String, val imageType: String)
 
 data class GameSummary(
     val id: String,

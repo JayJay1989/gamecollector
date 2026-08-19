@@ -29,6 +29,7 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
     public DbSet<WishlistItem> WishlistItems => Set<WishlistItem>();
     public DbSet<GameImage> GameImages => Set<GameImage>();
     public DbSet<GameChangeRequest> GameChangeRequests => Set<GameChangeRequest>();
+    public DbSet<GameChangeRequestImage> GameChangeRequestImages => Set<GameChangeRequestImage>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<SyncEvent> SyncEvents => Set<SyncEvent>();
     public DbSet<ProcessedMutation> ProcessedMutations => Set<ProcessedMutation>();

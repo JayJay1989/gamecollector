@@ -70,6 +70,7 @@ import com.gamecollector.core.network.CollectionSummary
 import com.gamecollector.core.network.GameDetails
 import com.gamecollector.core.network.GameSummary
 import com.gamecollector.core.network.GameSubmission
+import com.gamecollector.core.network.GameChangeRequest
 import com.gamecollector.core.network.UserProfile
 import com.gamecollector.core.network.UserSearchResult
 import com.gamecollector.core.database.LocalNotification
@@ -100,6 +101,9 @@ class MainActivity : ComponentActivity() {
                         admin = viewModel::showAdmin,
                         openAdminSubmission = viewModel::openAdminSubmission,
                         moderateAdminSubmission = viewModel::moderateAdminSubmission,
+                        openAdminChangeRequest = viewModel::openAdminChangeRequest,
+                        reviewAdminChangeRequest = viewModel::reviewAdminChangeRequest,
+                        deleteAdminGame = viewModel::deleteAdminGame,
                         updateProfile = viewModel::updateProfile,
                         createCollection = viewModel::createCollection,
                         selectCollection = viewModel::selectCollection,
@@ -171,6 +175,7 @@ private data class AppActions(
     val admin: () -> Unit,
     val openAdminSubmission: (String) -> Unit,
     val moderateAdminSubmission: (AdminModerationDecision, String?) -> Unit,
+    val deleteAdminGame: () -> Unit,
     val updateProfile: (String, String) -> Unit,
     val createCollection: (String) -> Unit,
     val selectCollection: (String) -> Unit,
@@ -183,7 +188,9 @@ private data class AppActions(
     val markAllNotificationsRead: () -> Unit,
     val corrections: () -> Unit,
     val startCorrection: () -> Unit,
-    val submitCorrection: (CorrectionForm) -> Unit,
+    val submitCorrection: (CorrectionForm, Uri?, Uri?) -> Unit,
+    val openAdminChangeRequest: (String) -> Unit,
+    val reviewAdminChangeRequest: (Boolean, String?) -> Unit,
     val respondToInvitation: (String, Boolean) -> Unit,
     val searchUsers: (String) -> Unit,
     val invite: (String, CollectionRole) -> Unit,
@@ -281,6 +288,9 @@ private fun GameCollectorApp(state: MainUiState, actions: AppActions) {
                     AppPage.Admin -> AdminQueueScreen(state, actions)
                     AppPage.AdminSubmission -> state.selectedAdminSubmission?.let {
                         AdminSubmissionScreen(it, state.selectedGameImages, actions)
+                    } ?: LoadingScreen()
+                    AppPage.AdminCorrection -> state.selectedAdminChangeRequest?.let {
+                        AdminCorrectionScreen(it, state.selectedCorrectionImages, actions)
                     } ?: LoadingScreen()
                 }
                 state.message?.let {
@@ -458,12 +468,11 @@ private fun AdminQueueScreen(state: MainUiState, actions: AppActions) {
     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxSize()) {
         item {
             Header("Pending approvals", actions.home)
-            Text("${state.adminSubmissions.size} game${if (state.adminSubmissions.size == 1) "" else "s"} waiting for review")
+            Text("${state.adminSubmissions.size} game submission${if (state.adminSubmissions.size == 1) "" else "s"} and ${state.adminChangeRequests.size} correction${if (state.adminChangeRequests.size == 1) "" else "s"} waiting for review")
             OutlinedButton(onClick = actions.admin) { Text("Refresh") }
         }
-        if (state.adminSubmissions.isEmpty()) {
-            item { Text("There are no pending game submissions.") }
-        }
+        item { Text("New games", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
+        if (state.adminSubmissions.isEmpty()) item { Text("There are no pending game submissions.") }
         items(state.adminSubmissions, key = { it.game.id }) { submission ->
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -474,6 +483,19 @@ private fun AdminQueueScreen(state: MainUiState, actions: AppActions) {
                     submission.game.publisher?.let { Text(it) }
                     Text("Revision ${submission.game.revision} · ${submission.game.moderationStatus}")
                     Text("Review submission", color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
+        item { Text("Suggested corrections", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
+        if (state.adminChangeRequests.isEmpty()) item { Text("There are no pending corrections.") }
+        items(state.adminChangeRequests, key = { it.id }) { request ->
+            Card(modifier = Modifier.fillMaxWidth(), onClick = { actions.openAdminChangeRequest(request.id) }) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(request.gameTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    val fields = proposedFieldLabels(request)
+                    Text(if (fields.isEmpty()) "Replacement images" else fields.joinToString(" · "))
+                    if (request.proposedImages.isNotEmpty()) Text("${request.proposedImages.size} replacement image${if (request.proposedImages.size == 1) "" else "s"}")
+                    Text("Review correction", color = MaterialTheme.colorScheme.primary)
                 }
             }
         }
@@ -533,6 +555,57 @@ private fun AdminSubmissionScreen(
                     onClick = { actions.moderateAdminSubmission(AdminModerationDecision.Reject, comment) },
                     enabled = comment.isNotBlank(),
                 ) { Text("Reject") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AdminCorrectionScreen(
+    request: GameChangeRequest,
+    images: Map<String, ByteArray>,
+    actions: AppActions,
+) {
+    var comment by rememberSaveable(request.id) { mutableStateOf("") }
+    val patch = request.proposedChanges
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxSize()) {
+        item { Header("Review correction", actions.admin) }
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(request.gameTitle, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                    Text("Proposed changes", style = MaterialTheme.typography.titleMedium)
+                    patch.title?.let { Text("Title: $it") }
+                    patch.description?.let { Text("Description: $it") }
+                    patch.publisher?.let { Text("Publisher: $it") }
+                    patch.releaseYear?.let { Text("Release year: $it") }
+                    patch.minimumPlayers?.let { Text("Minimum players: $it") }
+                    patch.maximumPlayers?.let { Text("Maximum players: $it") }
+                    patch.minimumAge?.let { Text("Minimum age: $it") }
+                    patch.minimumPlayingTimeMinutes?.let { Text("Minimum playing time: $it minutes") }
+                    patch.maximumPlayingTimeMinutes?.let { Text("Maximum playing time: $it minutes") }
+                    if (proposedFieldLabels(request).isEmpty()) Text("No text fields changed.")
+                    Text("Catalog revision ${request.gameRevision}", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+        if (request.proposedImages.isNotEmpty()) {
+            item {
+                Text("Proposed replacement images", style = MaterialTheme.typography.titleMedium)
+                Text("These are previews only. The current catalog images remain live until approval.")
+            }
+            item { GamePhotos(images, request.proposedImages.map { it.imageType }) }
+        }
+        item {
+            OutlinedTextField(comment, { comment = it }, label = { Text("Comment to user") },
+                supportingText = { Text("Required when rejecting.") }, minLines = 3, modifier = Modifier.fillMaxWidth())
+        }
+        item {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { actions.reviewAdminChangeRequest(true, comment) }) { Text("Apply correction") }
+                OutlinedButton(onClick = { actions.reviewAdminChangeRequest(false, comment) }, enabled = comment.isNotBlank()) {
+                    Text("Reject")
+                }
             }
         }
     }
@@ -604,6 +677,17 @@ private fun GameSummaryRow(
     }
 }
 
+private fun proposedFieldLabels(request: GameChangeRequest): List<String> = buildList {
+    val patch = request.proposedChanges
+    if (patch.title != null) add("title")
+    if (patch.description != null) add("description")
+    if (patch.publisher != null) add("publisher")
+    if (patch.releaseYear != null) add("year")
+    if (patch.minimumPlayers != null || patch.maximumPlayers != null) add("players")
+    if (patch.minimumAge != null) add("age")
+    if (patch.minimumPlayingTimeMinutes != null || patch.maximumPlayingTimeMinutes != null) add("playing time")
+}
+
 @Composable
 private fun GameListThumbnail(bytes: ByteArray?, title: String) {
     val bitmap = remember(bytes) { bytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) } }
@@ -630,6 +714,7 @@ private fun GameScreen(state: MainUiState, actions: AppActions) {
     val owned = game.id in state.ownedGameIds
     val wishlisted = game.id in state.wishlistGameIds
     val canEditCollection = collection?.myRole == CollectionRole.Owner || collection?.myRole == CollectionRole.Editor
+    var confirmDelete by rememberSaveable(game.id) { mutableStateOf(false) }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxSize()) {
         item {
             Header(game.title, actions.backFromGame)
@@ -658,6 +743,25 @@ private fun GameScreen(state: MainUiState, actions: AppActions) {
         if (game.moderationStatus.equals("Approved", true)) {
             item { OutlinedButton(onClick = actions.startCorrection) { Text("Suggest a correction") } }
         }
+        if (state.isAdministrator) {
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Administrator", style = MaterialTheme.typography.titleMedium)
+                        Text("Permanently deleting this game also removes it from every collection and deletes its images from storage.")
+                        if (!confirmDelete) {
+                            OutlinedButton(onClick = { confirmDelete = true }) { Text("Delete game permanently") }
+                        } else {
+                            Text("This cannot be undone.", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(onClick = actions.deleteAdminGame) { Text("Confirm deletion") }
+                                TextButton(onClick = { confirmDelete = false }) { Text("Cancel") }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         game.description?.takeIf(String::isNotBlank)?.let { description -> item { Text(description) } }
         if (game.languages.isNotEmpty()) item { Text("Languages: ${game.languages.joinToString { it.name }}") }
         if (game.tags.isNotEmpty()) item { Text("Tags: ${game.tags.joinToString { it.name }}") }
@@ -666,10 +770,10 @@ private fun GameScreen(state: MainUiState, actions: AppActions) {
 }
 
 @Composable
-private fun GamePhotos(images: Map<String, ByteArray>) {
+private fun GamePhotos(images: Map<String, ByteArray>, sides: List<String> = listOf("Front", "Back")) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
         Text("Front and back", style = MaterialTheme.typography.titleMedium)
-        listOf("Front", "Back").forEach { side ->
+        sides.forEach { side ->
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(side, fontWeight = FontWeight.SemiBold)
@@ -996,6 +1100,10 @@ private fun CorrectionEditorScreen(game: GameDetails, actions: AppActions) {
     var minAge by rememberSaveable(game.id) { mutableStateOf(game.minimumAge?.toString().orEmpty()) }
     var minTime by rememberSaveable(game.id) { mutableStateOf(game.minimumPlayingTimeMinutes?.toString().orEmpty()) }
     var maxTime by rememberSaveable(game.id) { mutableStateOf(game.maximumPlayingTimeMinutes?.toString().orEmpty()) }
+    var frontImageUri by rememberSaveable(game.id) { mutableStateOf<String?>(null) }
+    var backImageUri by rememberSaveable(game.id) { mutableStateOf<String?>(null) }
+    val frontPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> frontImageUri = uri?.toString() }
+    val backPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> backImageUri = uri?.toString() }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxSize()) {
         item { Header("Suggest correction", { actions.openGame(game.id) }); Text("Only changed fields are sent for moderator review. The current catalog entry stays visible until approval.") }
         item { OutlinedTextField(title, { title = it }, label = { Text("Title") }, modifier = Modifier.fillMaxWidth()) }
@@ -1010,7 +1118,20 @@ private fun CorrectionEditorScreen(game: GameDetails, actions: AppActions) {
             NumberField("Maximum playing time", maxTime) { maxTime = it }
         }
         item {
-            Button(onClick = { actions.submitCorrection(CorrectionForm(title, description, publisher, year.toIntOrNull(), minPlayers.toIntOrNull(), maxPlayers.toIntOrNull(), minAge.toIntOrNull(), minTime.toIntOrNull(), maxTime.toIntOrNull())) }) {
+            Text("Replacement images (optional)", style = MaterialTheme.typography.titleMedium)
+            Text("The existing image remains visible until an administrator approves this correction.")
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+                OutlinedButton(onClick = { frontPicker.launch("image/*") }) { Text(if (frontImageUri == null) "Replace front" else "Front selected") }
+                OutlinedButton(onClick = { backPicker.launch("image/*") }) { Text(if (backImageUri == null) "Replace back" else "Back selected") }
+                if (frontImageUri != null) TextButton(onClick = { frontImageUri = null }) { Text("Clear front") }
+                if (backImageUri != null) TextButton(onClick = { backImageUri = null }) { Text("Clear back") }
+            }
+        }
+        item {
+            Button(onClick = { actions.submitCorrection(
+                CorrectionForm(title, description, publisher, year.toIntOrNull(), minPlayers.toIntOrNull(), maxPlayers.toIntOrNull(), minAge.toIntOrNull(), minTime.toIntOrNull(), maxTime.toIntOrNull()),
+                frontImageUri?.let(Uri::parse), backImageUri?.let(Uri::parse),
+            ) }) {
                 Text("Submit for review")
             }
         }
