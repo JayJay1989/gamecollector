@@ -10,6 +10,7 @@ import com.gamecollector.core.database.LocalGameChangeRequest
 import com.gamecollector.core.database.LocalGameBarcode
 import com.gamecollector.core.database.LocalGameDetails
 import com.gamecollector.core.database.LocalGameLanguage
+import com.gamecollector.core.database.LocalGameImage
 import com.gamecollector.core.database.LocalGameTag
 import com.gamecollector.core.database.LocalInvitation
 import com.gamecollector.core.database.LocalNotification
@@ -51,10 +52,13 @@ class GameCollectorRepository(
         database.collectionDao().observeMembers(collectionId).map { items -> items.map(LocalCollectionMember::toModel) }
 
     fun search(query: String): Flow<List<GameSummary>> =
-        database.catalogDao().observeSearch(query).map { items -> items.map(LocalGame::toSummary) }
+        database.catalogDao().observeSearch(query).map { items -> items.map(LocalGameDetails::toSummary) }
 
     fun game(gameId: String): Flow<GameDetails?> =
         database.catalogDao().observeGame(gameId).map { it?.toModel() }
+
+    fun collectionGames(collectionId: String, query: String): Flow<List<GameSummary>> =
+        database.catalogDao().observeCollectionGames(collectionId, query).map { items -> items.map(LocalGameDetails::toSummary) }
 
     fun ownedIds(collectionId: String): Flow<Set<String>> =
         database.catalogDao().observeOwnedIds(collectionId).map(List<String>::toSet)
@@ -134,6 +138,7 @@ class GameCollectorRepository(
             result.value.forEach { summary ->
                 val previous = database.catalogDao().getGame(summary.id)
                 database.catalogDao().upsertGames(listOf(summary.toLocal(previous)))
+                cacheFrontImage(summary.id, summary.frontImageId)
             }
         }
     }
@@ -158,7 +163,7 @@ class GameCollectorRepository(
                                 title = item.title,
                                 description = previous?.description,
                                 publisher = item.publisher,
-                                releaseYear = previous?.releaseYear,
+                                releaseYear = item.releaseYear,
                                 minimumPlayers = previous?.minimumPlayers,
                                 maximumPlayers = previous?.maximumPlayers,
                                 minimumAge = previous?.minimumAge,
@@ -169,6 +174,7 @@ class GameCollectorRepository(
                                 isComplete = previous?.isComplete ?: false,
                             ),
                         ))
+                        cacheFrontImage(item.gameId, item.frontImageId)
                     }
                     database.catalogDao().clearCollectionGames(collectionId)
                     database.catalogDao().upsertCollectionGames(result.value.map { LocalCollectionGame(collectionId, it.gameId) })
@@ -272,6 +278,13 @@ class GameCollectorRepository(
         database.catalogDao().upsertLanguages(value.languages.map { LocalGameLanguage(value.id, it.id, it.name, it.code) })
         database.catalogDao().upsertTags(value.tags.map { LocalGameTag(value.id, it.id, it.name) })
     }
+
+    private suspend fun cacheFrontImage(gameId: String, mediaId: String?) {
+        database.catalogDao().clearImages(gameId, "Front")
+        if (mediaId != null) {
+            database.catalogDao().upsertImages(listOf(LocalGameImage(mediaId, gameId, "Front", null, null)))
+        }
+    }
 }
 
 private fun UserProfile.toLocal() = LocalProfile(id, displayName, username, hasActiveDevice, defaultCollectionId)
@@ -340,6 +353,15 @@ private fun GameDetails.toLocal() = LocalGame(
 )
 
 private fun LocalGame.toSummary() = GameSummary(id, title, publisher, releaseYear, moderationStatus)
+
+private fun LocalGameDetails.toSummary() = GameSummary(
+    game.id,
+    game.title,
+    game.publisher,
+    game.releaseYear,
+    game.moderationStatus,
+    images.firstOrNull { it.kind == "Front" }?.id,
+)
 
 private fun LocalGameDetails.toModel() = GameDetails(
     id = game.id,

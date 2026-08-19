@@ -6,5 +6,6 @@ public interface IGameImageRepository : IRepository<GameImage, Guid>
 {
     Task<GameImage?> GetByGameAndTypeAsync(Guid gameId, GameImageType imageType, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<GameImage>> GetForGameAsync(Guid gameId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyDictionary<Guid, Guid>> GetReadyFrontIdsAsync(IReadOnlyCollection<Guid> gameIds, CancellationToken cancellationToken = default);
     Task<bool> HasReadyFrontAndBackAsync(Guid gameId, CancellationToken cancellationToken = default);
 }

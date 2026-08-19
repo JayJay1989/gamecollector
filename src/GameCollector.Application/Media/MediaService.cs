@@ -118,14 +118,47 @@ public sealed class MediaService(
         if (profile is null) return Result.Failure<GameImageDto>(ApplicationErrors.ProfileNotFound);
         if (await catalog.GetVisibleByIdAsync(image.GameId, profile.Id, currentUser.IsAdministrator, cancellationToken) is null)
             return Result.Failure<GameImageDto>(ApplicationErrors.MediaNotFound);
-        Uri? original = null;
         Uri? thumbnail = null;
         if (image.Status == GameImageStatus.Ready)
         {
-            original = await storage.CreateDownloadUrlAsync(image.OriginalObjectKey, DownloadLifetime, cancellationToken);
             thumbnail = await storage.CreateDownloadUrlAsync(image.ThumbnailObjectKey!, DownloadLifetime, cancellationToken);
         }
-        return Result.Success(Map(image, original, thumbnail));
+        return Result.Success(Map(image, thumbnail));
+    }
+
+    public async Task<Result<IReadOnlyList<GameImageDto>>> ListForGameAsync(Guid gameId, CancellationToken cancellationToken = default)
+    {
+        var profile = await GetProfileAsync(cancellationToken);
+        if (profile is null) return Result.Failure<IReadOnlyList<GameImageDto>>(ApplicationErrors.ProfileNotFound);
+        if (await catalog.GetVisibleByIdAsync(gameId, profile.Id, currentUser.IsAdministrator, cancellationToken) is null)
+            return Result.Failure<IReadOnlyList<GameImageDto>>(ApplicationErrors.GameNotFound);
+
+        var items = await images.GetForGameAsync(gameId, cancellationToken);
+        return Result.Success<IReadOnlyList<GameImageDto>>(items
+            .OrderBy(item => item.ImageType)
+            .Select(item => Map(item))
+            .ToList());
+    }
+
+    public async Task<Result<ThumbnailContent>> GetThumbnailAsync(Guid mediaId, CancellationToken cancellationToken = default)
+    {
+        var image = await images.GetByIdAsync(mediaId, cancellationToken);
+        if (image is null || image.Status != GameImageStatus.Ready || string.IsNullOrWhiteSpace(image.ThumbnailObjectKey))
+            return Result.Failure<ThumbnailContent>(ApplicationErrors.MediaNotFound);
+        var profile = await GetProfileAsync(cancellationToken);
+        if (profile is null) return Result.Failure<ThumbnailContent>(ApplicationErrors.ProfileNotFound);
+        if (await catalog.GetVisibleByIdAsync(image.GameId, profile.Id, currentUser.IsAdministrator, cancellationToken) is null)
+            return Result.Failure<ThumbnailContent>(ApplicationErrors.MediaNotFound);
+
+        try
+        {
+            var content = await storage.ReadAsync(image.ThumbnailObjectKey, MaximumFileSizeBytes, cancellationToken);
+            return Result.Success(new ThumbnailContent(content, "image/jpeg"));
+        }
+        catch (ObjectNotFoundException)
+        {
+            return Result.Failure<ThumbnailContent>(ApplicationErrors.MediaNotFound);
+        }
     }
 
     private async Task<(Game? Game, ApplicationError? Error)> GetWriteAccessAsync(Guid gameId, CancellationToken cancellationToken)
@@ -142,7 +175,7 @@ public sealed class MediaService(
     private Task<UserProfile?> GetProfileAsync(CancellationToken cancellationToken) =>
         users.GetBySubjectAsync(currentUser.Subject ?? throw new InvalidOperationException("Missing subject claim."), cancellationToken);
     private DateTime Now() => timeProvider.GetUtcNow().UtcDateTime;
-    private static GameImageDto Map(GameImage image, Uri? original = null, Uri? thumbnail = null) =>
+    private static GameImageDto Map(GameImage image, Uri? thumbnail = null) =>
         new(image.Id, image.GameId, image.ImageType.ToString(), image.Status.ToString(), image.ContentType,
-            image.FileSizeBytes, image.Width, image.Height, image.Checksum, original, thumbnail);
+            image.FileSizeBytes, image.Width, image.Height, image.Checksum, null, thumbnail);
 }

@@ -54,12 +54,34 @@ public sealed class MediaWorkflowTests(GameCollectorApiFactory factory) : IClass
         Assert.Equal("image/png", image.ContentType);
         Assert.Equal(1, image.Width);
         Assert.Equal(1, image.Height);
-        Assert.NotNull(image.OriginalUrl);
+        Assert.Null(image.OriginalUrl);
         Assert.NotNull(image.ThumbnailUrl);
         Assert.Equal(64, image.Checksum?.Length);
-        await using var scope = factory.Services.CreateAsyncScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        Assert.True(await dbContext.OutboxMessages.AnyAsync(message => message.ProcessedAtUtc != null));
+
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            await using var waitScope = factory.Services.CreateAsyncScope();
+            var waitDatabase = waitScope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var mediaId = intent.MediaId.ToString();
+            if (await waitDatabase.OutboxMessages.AnyAsync(message =>
+                    message.PayloadJson.Contains(mediaId) && message.ProcessedAtUtc != null)) break;
+            await Task.Delay(25);
+        }
+
+        var uploadKey = Uri.UnescapeDataString(intent.UploadUrl.AbsolutePath["/upload/".Length..]);
+        Assert.False(factory.ObjectStorage.Exists(uploadKey));
+
+        using var listRequest = Request(HttpMethod.Get, $"{ApiRoutes.V1}/media/games/{context.GameId}", context);
+        using var listResponse = await _client.SendAsync(listRequest);
+        Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
+        var listed = await listResponse.Content.ReadFromJsonAsync<List<GameImageDto>>();
+        Assert.Equal(intent.MediaId, Assert.Single(listed!).Id);
+
+        using var thumbnailRequest = Request(HttpMethod.Get, $"{ApiRoutes.V1}/media/{intent.MediaId}/thumbnail", context);
+        using var thumbnailResponse = await _client.SendAsync(thumbnailRequest);
+        Assert.Equal(HttpStatusCode.OK, thumbnailResponse.StatusCode);
+        Assert.Equal("image/jpeg", thumbnailResponse.Content.Headers.ContentType?.MediaType);
+        Assert.NotEmpty(await thumbnailResponse.Content.ReadAsByteArrayAsync());
     }
 
     [Fact]

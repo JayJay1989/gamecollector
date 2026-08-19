@@ -82,6 +82,7 @@ public static class DependencyInjection
             return client.Build();
         });
         services.AddSingleton<IObjectStorage, MinioObjectStorage>();
+        services.AddHostedService<OriginalMediaRetentionWorker>();
 
         services.Configure<ExternalCatalogOptions>(configuration.GetSection(ExternalCatalogOptions.SectionName));
         var externalOptions = configuration.GetSection(ExternalCatalogOptions.SectionName).Get<ExternalCatalogOptions>() ?? new ExternalCatalogOptions();

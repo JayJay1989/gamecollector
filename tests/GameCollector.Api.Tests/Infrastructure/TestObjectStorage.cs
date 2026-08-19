@@ -43,4 +43,6 @@ public sealed class TestObjectStorage : IObjectStorage
             : throw new ArgumentException("This is not a test upload URL.", nameof(uploadUrl));
         _objects[Uri.UnescapeDataString(escapedKey)] = content.ToArray();
     }
+
+    public bool Exists(string objectKey) => _objects.ContainsKey(objectKey);
 }

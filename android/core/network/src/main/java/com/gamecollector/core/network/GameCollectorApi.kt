@@ -389,6 +389,53 @@ class GameCollectorApi(
         parser = ::gameImage,
     )
 
+    suspend fun listGameMedia(deviceId: String, gameId: String) = request(
+        "api/v1/media/games/$gameId",
+        deviceId = deviceId,
+        parser = { value -> value.arrayObjects().map(::gameImage) },
+    )
+
+    suspend fun downloadMediaThumbnail(deviceId: String, mediaId: String): ApiResult<ByteArray> =
+        withContext(Dispatchers.IO) {
+            val token = runCatching { tokens.freshAccessToken() }.getOrElse {
+                return@withContext ApiResult.NetworkError("Could not refresh the login session.")
+            } ?: return@withContext ApiResult.SignedOut
+            val url = baseUrl.resolve("api/v1/media/$mediaId/thumbnail")
+                ?: return@withContext ApiResult.NetworkError("The API URL is invalid.")
+            val request = Request.Builder()
+                .url(url)
+                .header("Authorization", "Bearer $token")
+                .header("Accept", "image/jpeg")
+                .header("X-Device-Id", deviceId)
+                .header("X-Correlation-ID", UUID.randomUUID().toString())
+                .get()
+                .build()
+            try {
+                client.newCall(request).execute().use { response ->
+                    if (response.code == 200) {
+                        val content = response.body.bytes()
+                        if (content.isEmpty()) ApiResult.NetworkError("The thumbnail response was empty.")
+                        else ApiResult.Success(content)
+                    } else {
+                        val content = response.body.string()
+                        val problem = runCatching { JSONObject(content) }.getOrNull()
+                        ApiResult.Error(
+                            statusCode = response.code,
+                            code = problem?.optString("code")?.takeIf(String::isNotBlank),
+                            message = problem?.optString("detail")?.takeIf(String::isNotBlank)
+                                ?: problem?.optString("title")?.takeIf(String::isNotBlank)
+                                ?: "The API returned HTTP ${response.code}.",
+                            referenceId = response.header("X-Correlation-ID")
+                                ?: problem?.optString("correlationId")?.takeIf(String::isNotBlank)
+                                ?: problem?.optString("traceId")?.takeIf(String::isNotBlank),
+                        )
+                    }
+                }
+            } catch (_: IOException) {
+                ApiResult.NetworkError("The thumbnail could not be downloaded.")
+            }
+        }
+
     suspend fun listLanguages(deviceId: String) = request(
         "api/v1/languages",
         deviceId = deviceId,
@@ -639,6 +686,7 @@ class GameCollectorApi(
             publisher = json.optNullableString("publisher"),
             releaseYear = json.optNullableInt("releaseYear"),
             moderationStatus = json.getString("moderationStatus"),
+            frontImageId = json.optNullableString("frontImageId"),
         )
     }
 
@@ -719,7 +767,14 @@ class GameCollectorApi(
 
     private fun ownedGame(value: String): OwnedGame {
         val json = JSONObject(value)
-        return OwnedGame(json.getString("gameId"), json.getString("title"), json.optNullableString("publisher"), json.getString("moderationStatus"))
+        return OwnedGame(
+            json.getString("gameId"),
+            json.getString("title"),
+            json.optNullableString("publisher"),
+            json.optNullableInt("releaseYear"),
+            json.getString("moderationStatus"),
+            json.optNullableString("frontImageId"),
+        )
     }
 
     private fun wishlistGame(value: String): WishlistGame {
@@ -870,6 +925,7 @@ data class GameSummary(
     val publisher: String?,
     val releaseYear: Int?,
     val moderationStatus: String,
+    val frontImageId: String? = null,
 )
 
 data class GameDetails(
@@ -891,7 +947,14 @@ data class GameDetails(
 )
 
 data class ReferenceData(val id: String, val name: String, val code: String?)
-data class OwnedGame(val gameId: String, val title: String, val publisher: String?, val moderationStatus: String)
+data class OwnedGame(
+    val gameId: String,
+    val title: String,
+    val publisher: String?,
+    val releaseYear: Int?,
+    val moderationStatus: String,
+    val frontImageId: String?,
+)
 data class WishlistGame(val gameId: String, val title: String, val publisher: String?, val moderationStatus: String)
 
 data class SyncMutation(val mutationId: String, val type: String, val gameId: String, val collectionId: String?)

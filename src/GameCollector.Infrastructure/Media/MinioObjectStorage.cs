@@ -34,8 +34,9 @@ public sealed class MinioObjectStorage(IMinioClient client, IOptions<MediaStorag
             if (stat.Size is < 1 || stat.Size > maximumBytes) throw new InvalidDataException("The stored object has an invalid size.");
             using var output = new MemoryStream((int)stat.Size);
             await client.GetObjectAsync(new GetObjectArgs().WithBucket(_bucket).WithObject(objectKey)
-                .WithCallbackStream(stream => stream.CopyToAsync(output, cancellationToken)), cancellationToken);
+                .WithCallbackStream(stream => stream.CopyTo(output)), cancellationToken);
             if (output.Length > maximumBytes) throw new InvalidDataException("The stored object is too large.");
+            if (output.Length != stat.Size) throw new InvalidDataException("The stored object could not be read completely.");
             return output.ToArray();
         }
         catch (GameCollector.Application.Abstractions.Media.ObjectNotFoundException) { throw; }

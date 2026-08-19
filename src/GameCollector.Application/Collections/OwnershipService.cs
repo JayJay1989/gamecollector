@@ -16,6 +16,7 @@ public sealed class OwnershipService(
     ICollectionGameRepository collectionGames,
     IWishlistRepository wishlist,
     ICatalogRepository catalog,
+    IGameImageRepository images,
     ISyncRepository sync,
     IUnitOfWork unitOfWork,
     TimeProvider timeProvider) : IOwnershipService
@@ -26,7 +27,10 @@ public sealed class OwnershipService(
         var access = await GetAccessAsync(collectionId, cancellationToken);
         if (access.Error is not null) return Result.Failure<IReadOnlyList<OwnedGameDto>>(access.Error);
         var items = await collectionGames.GetForCollectionAsync(collectionId, cancellationToken);
-        return Result.Success<IReadOnlyList<OwnedGameDto>>(items.Select(item => new OwnedGameDto(item.GameId, item.Game.Title, item.Game.Publisher, item.Game.ModerationStatus.ToString(), item.AddedAtUtc)).ToList());
+        var fronts = await images.GetReadyFrontIdsAsync(items.Select(item => item.GameId).ToList(), cancellationToken);
+        return Result.Success<IReadOnlyList<OwnedGameDto>>(items.Select(item => new OwnedGameDto(
+            item.GameId, item.Game.Title, item.Game.Publisher, item.Game.ReleaseYear,
+            item.Game.ModerationStatus.ToString(), fronts.GetValueOrDefault(item.GameId), item.AddedAtUtc)).ToList());
     }
 
     public async Task<Result<bool>> AddToCollectionAsync(Guid collectionId, Guid gameId, CancellationToken cancellationToken = default)

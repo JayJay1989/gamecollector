@@ -46,4 +46,20 @@ public sealed class MediaController(IMediaService media) : ControllerBase
         var result = await media.GetAsync(id, cancellationToken);
         return result.IsSuccess ? Ok(result.Value) : this.ToProblemResult(result.Error!);
     }
+
+    [HttpGet("games/{gameId:guid}")]
+    public async Task<IActionResult> ListForGame(Guid gameId, CancellationToken cancellationToken)
+    {
+        var result = await media.ListForGameAsync(gameId, cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : this.ToProblemResult(result.Error!);
+    }
+
+    [HttpGet("{id:guid}/thumbnail")]
+    public async Task<IActionResult> Thumbnail(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await media.GetThumbnailAsync(id, cancellationToken);
+        return result.IsSuccess
+            ? File(result.Value!.Content, result.Value.ContentType)
+            : this.ToProblemResult(result.Error!);
+    }
 }

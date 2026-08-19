@@ -129,7 +129,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             state.map { it.catalogQuery }.distinctUntilChanged().flatMapLatest(repository::search)
-                .collect { games -> mutableState.update { it.copy(games = games) } }
+                .collect { games ->
+                    mutableState.update { it.copy(games = games) }
+                    val thumbnails = loadFrontThumbnails(games)
+                    mutableState.update { it.copy(gameListThumbnails = thumbnails) }
+                }
+        }
+        viewModelScope.launch {
+            state.map { it.selectedCollectionId to it.collectionQuery }.distinctUntilChanged().flatMapLatest { (id, query) ->
+                if (id == null) flowOf(emptyList()) else repository.collectionGames(id, query)
+            }.collect { games ->
+                mutableState.update { it.copy(collectionGames = games) }
+                val thumbnails = loadFrontThumbnails(games)
+                mutableState.update { it.copy(gameListThumbnails = thumbnails) }
+            }
         }
         viewModelScope.launch {
             state.map { it.selectedGameId }.distinctUntilChanged().flatMapLatest { id ->
@@ -194,6 +207,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun showHome() = mutableState.update { it.copy(page = AppPage.Home, message = null) }
 
+    fun showLibrary() {
+        val collectionId = state.value.selectedCollectionId
+            ?: return showMessage("Create or select a collection first.")
+        mutableState.update { it.copy(page = AppPage.Library, message = null) }
+        launchAction {
+            when (val result = repository.refreshOwned(deviceId, collectionId)) {
+                is ApiResult.Success -> mutableState.update {
+                    it.copy(page = AppPage.Library, working = false, message = null)
+                }
+                is ApiResult.NetworkError -> mutableState.update {
+                    it.copy(page = AppPage.Library, working = false, message = "Showing saved collection games offline.")
+                }
+                else -> fail(result)
+            }
+        }
+    }
+
+    fun searchCollection(query: String) = mutableState.update {
+        it.copy(collectionQuery = query, page = AppPage.Library, message = null)
+    }
+
     fun showProfile() = mutableState.update { it.copy(page = AppPage.Profile, message = null) }
 
     fun showSettings() = mutableState.update {
@@ -202,10 +236,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun showAdmin() = launchAction { refreshAdminQueue(showPage = true) }
 
-    fun openAdminSubmission(gameId: String) = mutableState.update { current ->
-        val submission = current.adminSubmissions.firstOrNull { it.game.id == gameId }
-        if (submission == null) current.copy(message = "That submission is no longer pending.")
-        else current.copy(page = AppPage.AdminSubmission, selectedAdminSubmission = submission, message = null)
+    fun openAdminSubmission(gameId: String) {
+        val submission = state.value.adminSubmissions.firstOrNull { it.game.id == gameId }
+            ?: return showMessage("That submission is no longer pending.")
+        launchAction {
+            mutableState.update {
+                it.copy(
+                    page = AppPage.AdminSubmission,
+                    selectedAdminSubmission = submission,
+                    selectedGameImages = emptyMap(),
+                    message = null,
+                )
+            }
+            val images = loadGameThumbnails(gameId)
+            mutableState.update { it.copy(selectedGameImages = images, working = false) }
+        }
     }
 
     fun moderateAdminSubmission(decision: AdminModerationDecision, comment: String?) {
@@ -487,10 +532,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         page = AppPage.Game,
                         gameReturnPage = AppPage.Scanner,
                         selectedGameId = cachedId,
+                        selectedGameImages = emptyMap(),
                         working = false,
                         message = "Found instantly in the saved catalog.",
                     )
                 }
+                val images = loadGameThumbnails(cachedId)
+                mutableState.update { it.copy(selectedGameImages = images) }
                 return@launchAction
             }
             when (val result = repository.refreshGameByBarcode(deviceId, normalized)) {
@@ -502,11 +550,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun openGame(gameId: String) = launchAction {
+        val returnPage = if (state.value.page == AppPage.Library) AppPage.Library else AppPage.Catalog
         mutableState.update {
-            it.copy(page = AppPage.Game, gameReturnPage = AppPage.Catalog, selectedGameId = gameId, working = true, message = null)
+            it.copy(
+                page = AppPage.Game,
+                gameReturnPage = returnPage,
+                selectedGameId = gameId,
+                selectedGameImages = emptyMap(),
+                working = true,
+                message = null,
+            )
         }
         when (val result = repository.refreshGame(deviceId, gameId)) {
-            is ApiResult.Success -> showGame(result.value)
+            is ApiResult.Success -> showGame(result.value, returnPage)
             is ApiResult.NetworkError -> mutableState.update { it.copy(working = false, message = "Showing saved game details offline.") }
             else -> fail(result)
         }
@@ -745,7 +801,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     ?: result.value.firstOrNull()?.id
                 val (owned, wishlist) = libraryIds(selected)
                 mutableState.value = MainUiState(
-                    page = AppPage.Home,
+                    page = if (selected == null) AppPage.Home else AppPage.Library,
                     profile = profile,
                     collections = result.value,
                     selectedCollectionId = selected,
@@ -763,7 +819,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val selected = profile.defaultCollectionId?.takeIf { id -> cached.any { it.id == id } } ?: cached.first().id
                     val (owned, wishlist) = libraryIds(selected, refresh = false)
                     mutableState.value = MainUiState(
-                        page = AppPage.Home,
+                        page = AppPage.Library,
                         profile = profile,
                         collections = cached,
                         selectedCollectionId = selected,
@@ -787,7 +843,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 ?: collectionsResult.value.firstOrNull()?.id
             val (owned, wishlist) = libraryIds(selected)
             mutableState.value = MainUiState(
-                page = AppPage.Home,
+                page = if (selected == null) AppPage.Home else AppPage.Library,
                 profile = profileResult.value,
                 collections = collectionsResult.value,
                 selectedCollectionId = selected,
@@ -830,18 +886,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun showGame(game: GameDetails, returnPage: AppPage = AppPage.Catalog) {
         val (owned, wishlist) = libraryIds(state.value.selectedCollectionId)
+        val images = loadGameThumbnails(game.id)
         mutableState.update {
             it.copy(
                 page = AppPage.Game,
                 gameReturnPage = returnPage,
                 selectedGameId = game.id,
                 selectedGame = game,
+                selectedGameImages = images,
                 ownedGameIds = owned,
                 wishlistGameIds = wishlist,
                 working = false,
                 message = null,
             )
         }
+    }
+
+    private suspend fun loadGameThumbnails(gameId: String): Map<String, ByteArray> {
+        val media = api.listGameMedia(deviceId, gameId)
+        if (media !is ApiResult.Success) return emptyMap()
+        val result = linkedMapOf<String, ByteArray>()
+        for (item in media.value.filter { it.status == "Ready" }) {
+            val thumbnail = api.downloadMediaThumbnail(deviceId, item.id)
+            if (thumbnail is ApiResult.Success) result[item.imageType] = thumbnail.value
+        }
+        return result
+    }
+
+    private suspend fun loadFrontThumbnails(games: List<GameSummary>): Map<String, ByteArray> {
+        val result = state.value.gameListThumbnails.toMutableMap()
+        for (game in games) {
+            if (game.id in result) continue
+            val mediaId = game.frontImageId ?: continue
+            val thumbnail = api.downloadMediaThumbnail(deviceId, mediaId)
+            if (thumbnail is ApiResult.Success) result[game.id] = thumbnail.value
+        }
+        return result
     }
 
     private suspend fun startDraftForBarcode(barcode: String) {
@@ -938,7 +1018,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun Throwable.safeMessage() = message?.take(200) ?: "Authentication failed."
 }
 
-enum class AppPage { SignIn, Loading, Onboarding, Home, Profile, Settings, Collection, Invitations, Notifications, Corrections, CorrectionEditor, Catalog, Game, Scanner, Drafts, DraftEditor, ServerSubmissionEditor, Admin, AdminSubmission }
+enum class AppPage { SignIn, Loading, Onboarding, Home, Library, Profile, Settings, Collection, Invitations, Notifications, Corrections, CorrectionEditor, Catalog, Game, Scanner, Drafts, DraftEditor, ServerSubmissionEditor, Admin, AdminSubmission }
 
 data class CorrectionForm(
     val title: String, val description: String?, val publisher: String?, val releaseYear: Int?,
@@ -1040,9 +1120,13 @@ data class MainUiState(
     val recentDiagnostics: List<String> = emptyList(),
     val searchResults: List<UserSearchResult> = emptyList(),
     val games: List<GameSummary> = emptyList(),
+    val collectionGames: List<GameSummary> = emptyList(),
+    val collectionQuery: String = "",
+    val gameListThumbnails: Map<String, ByteArray> = emptyMap(),
     val catalogQuery: String = "",
     val selectedGameId: String? = null,
     val selectedGame: GameDetails? = null,
+    val selectedGameImages: Map<String, ByteArray> = emptyMap(),
     val gameReturnPage: AppPage = AppPage.Catalog,
     val ownedGameIds: Set<String> = emptySet(),
     val wishlistGameIds: Set<String> = emptySet(),

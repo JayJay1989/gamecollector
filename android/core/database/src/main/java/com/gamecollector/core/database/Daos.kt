@@ -39,12 +39,24 @@ data class LocalGameDetails(
 
 @Dao
 interface CatalogDao {
+    @Transaction
     @Query("SELECT * FROM games WHERE title LIKE '%' || :query || '%' COLLATE NOCASE ORDER BY title COLLATE NOCASE")
-    fun observeSearch(query: String): Flow<List<LocalGame>>
+    fun observeSearch(query: String): Flow<List<LocalGameDetails>>
 
     @Transaction
     @Query("SELECT * FROM games WHERE id = :id")
     fun observeGame(id: String): Flow<LocalGameDetails?>
+
+    @Transaction
+    @Query("""
+        SELECT games.* FROM games
+        INNER JOIN collection_games ON collection_games.gameId = games.id
+        WHERE collection_games.collectionId = :collectionId
+          AND collection_games.isPresent = 1
+          AND games.title LIKE '%' || :query || '%' COLLATE NOCASE
+        ORDER BY games.title COLLATE NOCASE
+    """)
+    fun observeCollectionGames(collectionId: String, query: String): Flow<List<LocalGameDetails>>
 
     @Query("SELECT * FROM games WHERE id = :id") suspend fun getGame(id: String): LocalGame?
     @Query("SELECT gameId FROM game_barcodes WHERE barcode = :barcode LIMIT 1") suspend fun findGameIdByBarcode(barcode: String): String?
@@ -53,9 +65,11 @@ interface CatalogDao {
     @Upsert suspend fun upsertBarcodes(items: List<LocalGameBarcode>)
     @Upsert suspend fun upsertLanguages(items: List<LocalGameLanguage>)
     @Upsert suspend fun upsertTags(items: List<LocalGameTag>)
+    @Upsert suspend fun upsertImages(items: List<LocalGameImage>)
     @Query("DELETE FROM game_barcodes WHERE gameId = :gameId") suspend fun clearBarcodes(gameId: String)
     @Query("DELETE FROM game_languages WHERE gameId = :gameId") suspend fun clearLanguages(gameId: String)
     @Query("DELETE FROM game_tags WHERE gameId = :gameId") suspend fun clearTags(gameId: String)
+    @Query("DELETE FROM game_images WHERE gameId = :gameId AND kind = :kind") suspend fun clearImages(gameId: String, kind: String)
 
     @Query("SELECT gameId FROM collection_games WHERE collectionId = :collectionId AND isPresent = 1") fun observeOwnedIds(collectionId: String): Flow<List<String>>
     @Query("SELECT gameId FROM wishlist_items WHERE isPresent = 1") fun observeWishlistIds(): Flow<List<String>>

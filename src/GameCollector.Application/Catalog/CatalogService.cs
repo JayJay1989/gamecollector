@@ -8,14 +8,18 @@ using GameCollector.Domain.Users;
 
 namespace GameCollector.Application.Catalog;
 
-public sealed class CatalogService(ICurrentUser currentUser, IUserProfileRepository users, ICatalogRepository catalog) : ICatalogService
+public sealed class CatalogService(ICurrentUser currentUser, IUserProfileRepository users, ICatalogRepository catalog,
+    IGameImageRepository images) : ICatalogService
 {
     public async Task<Result<IReadOnlyList<GameSummaryDto>>> SearchAsync(string? query, CancellationToken cancellationToken = default)
     {
         var profile = await GetProfileAsync(cancellationToken);
         if (profile is null) return Result.Failure<IReadOnlyList<GameSummaryDto>>(ApplicationErrors.ProfileNotFound);
         var games = await catalog.SearchVisibleAsync(query, profile.Id, currentUser.IsAdministrator, 50, cancellationToken);
-        return Result.Success<IReadOnlyList<GameSummaryDto>>(games.Select(game => new GameSummaryDto(game.Id, game.Title, game.Publisher, game.ReleaseYear, game.ModerationStatus.ToString())).ToList());
+        var fronts = await images.GetReadyFrontIdsAsync(games.Select(game => game.Id).ToList(), cancellationToken);
+        return Result.Success<IReadOnlyList<GameSummaryDto>>(games.Select(game => new GameSummaryDto(
+            game.Id, game.Title, game.Publisher, game.ReleaseYear, game.ModerationStatus.ToString(),
+            fronts.GetValueOrDefault(game.Id))).ToList());
     }
 
     public async Task<Result<GameDto>> GetAsync(Guid id, CancellationToken cancellationToken = default)

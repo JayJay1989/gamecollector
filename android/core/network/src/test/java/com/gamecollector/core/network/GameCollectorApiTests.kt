@@ -51,6 +51,21 @@ class GameCollectorApiTests {
     }
 
     @Test
+    fun catalogAndCollectionGamesExposeYearAndFrontThumbnail() = runBlocking {
+        val summary = """{"id":"game-1","title":"HeroQuest","publisher":"Milton Bradley","releaseYear":1989,"moderationStatus":"Approved","frontImageId":"media-front"}"""
+        val owned = """{"gameId":"game-1","title":"HeroQuest","publisher":"Milton Bradley","releaseYear":1989,"moderationStatus":"Approved","frontImageId":"media-front","addedAtUtc":"2026-08-19T00:00:00Z"}"""
+        val transport = TestTransport(ResponseSpec(200, "[$summary]"), ResponseSpec(200, "[$owned]"))
+        val api = api(transport)
+
+        val search = api.searchGames("device-123", "HeroQuest")
+        val collection = api.listOwnedGames("device-123", "collection-1")
+
+        assertTrue(search is ApiResult.Success && search.value.single().frontImageId == "media-front")
+        assertTrue(collection is ApiResult.Success && collection.value.single().releaseYear == 1989)
+        assertEquals("media-front", (collection as ApiResult.Success).value.single().frontImageId)
+    }
+
+    @Test
     fun invitationWorkflowUsesUsernameQueryAndRoleValue() = runBlocking {
         val transport = TestTransport(
             ResponseSpec(200, "[{\"id\":\"user-2\",\"displayName\":\"Jane\",\"username\":\"jane\"}]"),
@@ -225,6 +240,23 @@ class GameCollectorApiTests {
         assertEquals("Bearer access-token", request.header("Authorization"))
         assertEquals("device-123", request.header("X-Device-Id"))
         assertEquals("image/jpeg", request.body?.contentType().toString())
+    }
+
+    @Test
+    fun gameThumbnailsAreListedAndDownloadedThroughAuthenticatedApi() = runBlocking {
+        val image = """{"id":"media-1","gameId":"game-1","imageType":"Front","status":"Ready","contentType":"image/jpeg","fileSizeBytes":300,"width":480,"height":320,"checksum":"abc","originalUrl":null,"thumbnailUrl":null}"""
+        val transport = TestTransport(ResponseSpec(200, "[$image]"), ResponseSpec(200, "jpeg-thumbnail"))
+        val api = api(transport)
+
+        val listed = api.listGameMedia("device-123", "game-1")
+        val downloaded = api.downloadMediaThumbnail("device-123", "media-1")
+
+        assertTrue(listed is ApiResult.Success && listed.value.single().imageType == "Front")
+        assertTrue(downloaded is ApiResult.Success && downloaded.value.decodeToString() == "jpeg-thumbnail")
+        assertEquals("/api/v1/media/games/game-1", transport.requests[0].url.encodedPath)
+        assertEquals("/api/v1/media/media-1/thumbnail", transport.requests[1].url.encodedPath)
+        assertTrue(transport.requests.all { it.header("Authorization") == "Bearer access-token" })
+        assertTrue(transport.requests.all { it.header("X-Device-Id") == "device-123" })
     }
 
     @Test
