@@ -3,12 +3,12 @@ plugins { alias(libs.plugins.android.library) }
 android {
     namespace = "com.gamecollector.core.data"
     compileSdk = 36
-    compileSdkExtension = 1
     defaultConfig { minSdk = 26 }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    compileSdkMinor = 1
 }
 
 dependencies {

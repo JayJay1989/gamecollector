@@ -6,7 +6,6 @@ plugins {
 android {
     namespace = "com.gamecollector.core.database"
     compileSdk = 36
-    compileSdkExtension = 1
     defaultConfig { minSdk = 26 }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -21,6 +20,7 @@ android {
             )
         }
     }
+    compileSdkMinor = 1
 }
 
 ksp {

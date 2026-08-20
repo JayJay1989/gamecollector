@@ -6,13 +6,13 @@ plugins {
 android {
     namespace = "com.gamecollector.core.designsystem"
     compileSdk = 36
-    compileSdkExtension = 1
     defaultConfig { minSdk = 26 }
     buildFeatures { compose = true }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    compileSdkMinor = 1
 }
 
 dependencies {
