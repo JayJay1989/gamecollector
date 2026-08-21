@@ -60,6 +60,14 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.core.content.ContextCompat
+import android.app.Activity
+import android.os.SystemClock
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.material3.TextFieldLabelScope
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gamecollector.core.designsystem.GameCollectorTheme
 import com.gamecollector.core.network.CollectionInvitation
@@ -78,15 +86,37 @@ import org.json.JSONObject
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
-    private val authorization = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        viewModel.completeLogin(it.data)
-    }
+    private val authorization =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            viewModel.completeLogin(it.data)
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             val state by viewModel.state.collectAsStateWithLifecycle()
+            val context = LocalContext.current
+            var lastBackPress by remember { mutableStateOf(0L) }
+
+            BackHandler {
+                if (viewModel.navigateBack()) {
+                    lastBackPress = 0L
+                } else {
+                    val now = SystemClock.elapsedRealtime()
+
+                    if (now - lastBackPress < 2_000L) {
+                        (context as? Activity)?.finish()
+                    } else {
+                        lastBackPress = now
+                        Toast.makeText(
+                            context,
+                            "Press back again to exit",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                }
+            }
             GameCollectorTheme {
                 GameCollectorApp(
                     state = state,
@@ -223,19 +253,25 @@ private data class AppActions(
 
 @Composable
 private fun GameCollectorApp(state: MainUiState, actions: AppActions) {
-    val primaryPage = state.page in setOf(AppPage.Library, AppPage.Catalog, AppPage.Scanner, AppPage.Home)
+    val primaryPage =
+        state.page in setOf(AppPage.Library, AppPage.Catalog, AppPage.Scanner, AppPage.Home)
     Scaffold(
         bottomBar = {
             if (primaryPage) PrimaryNavigation(state.page, actions)
         },
     ) { insets ->
         BoxWithConstraints(
-            modifier = Modifier.fillMaxSize().padding(insets),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(insets),
             contentAlignment = Alignment.TopCenter,
         ) {
             val horizontalPadding = if (maxWidth >= 840.dp) 32.dp else 16.dp
             Column(
-                modifier = Modifier.fillMaxWidth().widthIn(max = 840.dp).padding(horizontal = horizontalPadding),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 840.dp)
+                    .padding(horizontal = horizontalPadding),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 when (state.page) {
@@ -250,7 +286,13 @@ private fun GameCollectorApp(state: MainUiState, actions: AppActions) {
                     AppPage.Invitations -> InvitationsScreen(state.invitations, actions)
                     AppPage.Notifications -> NotificationsScreen(state, actions)
                     AppPage.Corrections -> CorrectionsScreen(state, actions)
-                    AppPage.CorrectionEditor -> state.selectedGame?.let { CorrectionEditorScreen(it, actions) } ?: LoadingScreen()
+                    AppPage.CorrectionEditor -> state.selectedGame?.let {
+                        CorrectionEditorScreen(
+                            it,
+                            actions
+                        )
+                    } ?: LoadingScreen()
+
                     AppPage.Catalog -> CatalogScreen(state, actions)
                     AppPage.Game -> GameScreen(state, actions)
                     AppPage.Scanner -> ScannerEntryScreen(actions)
@@ -264,6 +306,7 @@ private fun GameCollectorApp(state: MainUiState, actions: AppActions) {
                         actions.deleteServerSubmission,
                         actions.home,
                     )
+
                     AppPage.DraftEditor -> state.selectedDraft?.let { draft ->
                         DraftEditorScreen(
                             draft,
@@ -276,6 +319,7 @@ private fun GameCollectorApp(state: MainUiState, actions: AppActions) {
                             actions.drafts,
                         )
                     } ?: LoadingScreen()
+
                     AppPage.ServerSubmissionEditor -> state.selectedServerSubmission?.let { submission ->
                         ServerSubmissionEditorScreen(
                             submission,
@@ -285,20 +329,29 @@ private fun GameCollectorApp(state: MainUiState, actions: AppActions) {
                             actions.drafts,
                         )
                     } ?: LoadingScreen()
+
                     AppPage.Admin -> AdminQueueScreen(state, actions)
                     AppPage.AdminSubmission -> state.selectedAdminSubmission?.let {
                         AdminSubmissionScreen(it, state.selectedGameImages, actions)
                     } ?: LoadingScreen()
+
                     AppPage.AdminCorrection -> state.selectedAdminChangeRequest?.let {
                         AdminCorrectionScreen(it, state.selectedCorrectionImages, actions)
                     } ?: LoadingScreen()
                 }
                 state.message?.let {
-                    Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                    Text(
+                        it,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                 }
             }
             if (state.working && state.page != AppPage.Loading) {
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.TopEnd).padding(top = 12.dp))
+                CircularProgressIndicator(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 12.dp)
+                )
             }
         }
     }
@@ -328,12 +381,32 @@ private fun OnboardingScreen(onSubmit: (String, String, String) -> Unit) {
     var collectionName by rememberSaveable { mutableStateOf("") }
     FormScreen("Welcome") {
         Text("Create your profile and first card-game collection.")
-        OutlinedTextField(displayName, { displayName = it }, label = { Text("Display name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(username, { username = it }, label = { Text("Username") }, prefix = { Text("#") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(collectionName, { collectionName = it }, label = { Text("First collection") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(
+            displayName,
+            { displayName = it },
+            label = { Text("Display name") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            username,
+            { username = it },
+            label = { Text("Username") },
+            prefix = { Text("#") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            collectionName,
+            { collectionName = it },
+            label = { Text("First collection") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
         Button(
             onClick = { onSubmit(displayName, username, collectionName) },
-            enabled = displayName.isNotBlank() && username.trim().removePrefix("#").length in 3..30 && collectionName.isNotBlank(),
+            enabled = displayName.isNotBlank() && username.trim()
+                .removePrefix("#").length in 3..30 && collectionName.isNotBlank(),
         ) { Text("Create profile") }
     }
 }
@@ -341,7 +414,10 @@ private fun OnboardingScreen(onSubmit: (String, String, String) -> Unit) {
 @Composable
 private fun HomeScreen(state: MainUiState, actions: AppActions) {
     var newCollection by rememberSaveable { mutableStateOf("") }
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxSize()) {
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.fillMaxSize()
+    ) {
         item {
             Title("More")
             state.profile?.let { Text("${it.displayName}  •  #${it.username}") }
@@ -349,9 +425,20 @@ private fun HomeScreen(state: MainUiState, actions: AppActions) {
         item {
             state.selectedCollection?.let {
                 Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("Current collection", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                        Text(it.name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                    Column(
+                        Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            "Current collection",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            it.name,
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
                         Text("${state.ownedGameIds.size} games · ${it.myRole.name}")
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(onClick = actions.library) { Text("Browse games") }
@@ -362,13 +449,24 @@ private fun HomeScreen(state: MainUiState, actions: AppActions) {
             } ?: Text("Create a collection to get started.")
         }
         if (state.collections.size > 1) {
-            item { Text("Switch collection", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
+            item {
+                Text(
+                    "Switch collection",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
             items(state.collections, key = { it.id }) { collection ->
                 Card(
                     onClick = { actions.selectCollection(collection.id) },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
                         Text(collection.name, fontWeight = FontWeight.SemiBold)
                         Text(if (collection.id == state.selectedCollectionId) "Selected" else collection.myRole.name)
                     }
@@ -378,8 +476,15 @@ private fun HomeScreen(state: MainUiState, actions: AppActions) {
         item {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Activity", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Activity",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         OutlinedButton(onClick = actions.notifications) {
                             Text(if (state.unreadNotificationCount == 0) "Notifications" else "Notifications (${state.unreadNotificationCount})")
                         }
@@ -396,7 +501,11 @@ private fun HomeScreen(state: MainUiState, actions: AppActions) {
         item {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Account", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Account",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = actions.profile) { Text("Profile") }
                         OutlinedButton(onClick = actions.settings) { Text("Settings") }
@@ -408,9 +517,21 @@ private fun HomeScreen(state: MainUiState, actions: AppActions) {
         item {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Create another collection", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    OutlinedTextField(newCollection, { newCollection = it }, label = { Text("Collection name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                    Button(onClick = { actions.createCollection(newCollection); newCollection = "" }, enabled = newCollection.isNotBlank()) {
+                    Text(
+                        "Create another collection",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    OutlinedTextField(
+                        newCollection,
+                        { newCollection = it },
+                        label = { Text("Collection name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Button(onClick = {
+                        actions.createCollection(newCollection); newCollection = ""
+                    }, enabled = newCollection.isNotBlank()) {
                         Text("Create collection")
                     }
                 }
@@ -423,7 +544,10 @@ private fun HomeScreen(state: MainUiState, actions: AppActions) {
 private fun LibraryScreen(state: MainUiState, actions: AppActions) {
     val collection = state.selectedCollection
     var query by rememberSaveable(collection?.id) { mutableStateOf(state.collectionQuery) }
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxSize()) {
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxSize()
+    ) {
         item {
             Title(collection?.name ?: "My collection")
             Text("${state.ownedGameIds.size} game${if (state.ownedGameIds.size == 1) "" else "s"} in this collection")
@@ -435,7 +559,9 @@ private fun LibraryScreen(state: MainUiState, actions: AppActions) {
                 },
                 label = { Text("Search this collection") },
                 singleLine = true,
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
             )
             if (query.isNotBlank()) {
                 Text("${state.collectionGames.size} result${if (state.collectionGames.size == 1) "" else "s"}")
@@ -465,13 +591,22 @@ private fun LibraryScreen(state: MainUiState, actions: AppActions) {
 
 @Composable
 private fun AdminQueueScreen(state: MainUiState, actions: AppActions) {
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxSize()) {
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxSize()
+    ) {
         item {
             Header("Pending approvals", actions.home)
             Text("${state.adminSubmissions.size} game submission${if (state.adminSubmissions.size == 1) "" else "s"} and ${state.adminChangeRequests.size} correction${if (state.adminChangeRequests.size == 1) "" else "s"} waiting for review")
             OutlinedButton(onClick = actions.admin) { Text("Refresh") }
         }
-        item { Text("New games", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
+        item {
+            Text(
+                "New games",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
         if (state.adminSubmissions.isEmpty()) item { Text("There are no pending game submissions.") }
         items(state.adminSubmissions, key = { it.game.id }) { submission ->
             Card(
@@ -479,19 +614,35 @@ private fun AdminQueueScreen(state: MainUiState, actions: AppActions) {
                 onClick = { actions.openAdminSubmission(submission.game.id) },
             ) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(submission.game.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        submission.game.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
                     submission.game.publisher?.let { Text(it) }
                     Text("Revision ${submission.game.revision} · ${submission.game.moderationStatus}")
                     Text("Review submission", color = MaterialTheme.colorScheme.primary)
                 }
             }
         }
-        item { Text("Suggested corrections", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
+        item {
+            Text(
+                "Suggested corrections",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
         if (state.adminChangeRequests.isEmpty()) item { Text("There are no pending corrections.") }
         items(state.adminChangeRequests, key = { it.id }) { request ->
-            Card(modifier = Modifier.fillMaxWidth(), onClick = { actions.openAdminChangeRequest(request.id) }) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = { actions.openAdminChangeRequest(request.id) }) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(request.gameTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        request.gameTitle,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
                     val fields = proposedFieldLabels(request)
                     Text(if (fields.isEmpty()) "Replacement images" else fields.joinToString(" · "))
                     if (request.proposedImages.isNotEmpty()) Text("${request.proposedImages.size} replacement image${if (request.proposedImages.size == 1) "" else "s"}")
@@ -510,19 +661,30 @@ private fun AdminSubmissionScreen(
 ) {
     var comment by rememberSaveable(submission.game.id) { mutableStateOf("") }
     val game = submission.game
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxSize()) {
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxSize()
+    ) {
         item { Header("Review game", actions.admin) }
         item {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(game.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        game.title,
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
                     game.publisher?.let { Text("Publisher: $it") }
                     game.releaseYear?.let { Text("Release year: $it") }
                     game.description?.let { Text(it) }
-                    val players = listOfNotNull(game.minimumPlayers, game.maximumPlayers).joinToString("–")
+                    val players =
+                        listOfNotNull(game.minimumPlayers, game.maximumPlayers).joinToString("–")
                     if (players.isNotBlank()) Text("Players: $players")
                     game.minimumAge?.let { Text("Minimum age: $it") }
-                    val playingTime = listOfNotNull(game.minimumPlayingTimeMinutes, game.maximumPlayingTimeMinutes).joinToString("–")
+                    val playingTime = listOfNotNull(
+                        game.minimumPlayingTimeMinutes,
+                        game.maximumPlayingTimeMinutes
+                    ).joinToString("–")
                     if (playingTime.isNotBlank()) Text("Playing time: $playingTime minutes")
                     if (game.barcodes.isNotEmpty()) Text("Barcode: ${game.barcodes.joinToString()}")
                     if (game.languages.isNotEmpty()) Text("Languages: ${game.languages.joinToString { it.name }}")
@@ -543,16 +705,34 @@ private fun AdminSubmissionScreen(
             )
         }
         item {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { actions.moderateAdminSubmission(AdminModerationDecision.Approve, comment) }) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(onClick = {
+                    actions.moderateAdminSubmission(
+                        AdminModerationDecision.Approve,
+                        comment
+                    )
+                }) {
                     Text("Approve")
                 }
                 OutlinedButton(
-                    onClick = { actions.moderateAdminSubmission(AdminModerationDecision.NeedsChanges, comment) },
+                    onClick = {
+                        actions.moderateAdminSubmission(
+                            AdminModerationDecision.NeedsChanges,
+                            comment
+                        )
+                    },
                     enabled = comment.isNotBlank(),
                 ) { Text("Request changes") }
                 OutlinedButton(
-                    onClick = { actions.moderateAdminSubmission(AdminModerationDecision.Reject, comment) },
+                    onClick = {
+                        actions.moderateAdminSubmission(
+                            AdminModerationDecision.Reject,
+                            comment
+                        )
+                    },
                     enabled = comment.isNotBlank(),
                 ) { Text("Reject") }
             }
@@ -568,12 +748,19 @@ private fun AdminCorrectionScreen(
 ) {
     var comment by rememberSaveable(request.id) { mutableStateOf("") }
     val patch = request.proposedChanges
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxSize()) {
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxSize()
+    ) {
         item { Header("Review correction", actions.admin) }
         item {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(request.gameTitle, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        request.gameTitle,
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
                     Text("Proposed changes", style = MaterialTheme.typography.titleMedium)
                     patch.title?.let { Text("Title: $it") }
                     patch.description?.let { Text("Description: $it") }
@@ -585,7 +772,10 @@ private fun AdminCorrectionScreen(
                     patch.minimumPlayingTimeMinutes?.let { Text("Minimum playing time: $it minutes") }
                     patch.maximumPlayingTimeMinutes?.let { Text("Maximum playing time: $it minutes") }
                     if (proposedFieldLabels(request).isEmpty()) Text("No text fields changed.")
-                    Text("Catalog revision ${request.gameRevision}", style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        "Catalog revision ${request.gameRevision}",
+                        style = MaterialTheme.typography.bodySmall
+                    )
                 }
             }
         }
@@ -597,13 +787,27 @@ private fun AdminCorrectionScreen(
             item { GamePhotos(images, request.proposedImages.map { it.imageType }) }
         }
         item {
-            OutlinedTextField(comment, { comment = it }, label = { Text("Comment to user") },
-                supportingText = { Text("Required when rejecting.") }, minLines = 3, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(
+                comment,
+                { comment = it },
+                label = { Text("Comment to user") },
+                supportingText = { Text("Required when rejecting.") },
+                minLines = 3,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
         item {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { actions.reviewAdminChangeRequest(true, comment) }) { Text("Apply correction") }
-                OutlinedButton(onClick = { actions.reviewAdminChangeRequest(false, comment) }, enabled = comment.isNotBlank()) {
+                Button(onClick = {
+                    actions.reviewAdminChangeRequest(
+                        true,
+                        comment
+                    )
+                }) { Text("Apply correction") }
+                OutlinedButton(
+                    onClick = { actions.reviewAdminChangeRequest(false, comment) },
+                    enabled = comment.isNotBlank()
+                ) {
                     Text("Reject")
                 }
             }
@@ -614,7 +818,10 @@ private fun AdminCorrectionScreen(
 @Composable
 private fun CatalogScreen(state: MainUiState, actions: AppActions) {
     var query by rememberSaveable(state.catalogQuery) { mutableStateOf(state.catalogQuery) }
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxSize()) {
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxSize()
+    ) {
         item {
             Title("Find games")
             Text("Search the full game catalog and add games to your collection.")
@@ -623,9 +830,14 @@ private fun CatalogScreen(state: MainUiState, actions: AppActions) {
                 { query = it },
                 label = { Text("Game name") },
                 singleLine = true,
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
             )
-            Button(onClick = { actions.searchGames(query) }, modifier = Modifier.padding(top = 8.dp)) { Text("Search") }
+            Button(
+                onClick = { actions.searchGames(query) },
+                modifier = Modifier.padding(top = 8.dp)
+            ) { Text("Search") }
             if (state.catalogQuery.isNotBlank()) {
                 Text(
                     "${state.games.size} result${if (state.games.size == 1) "" else "s"} for ‘${state.catalogQuery}’",
@@ -655,22 +867,36 @@ private fun GameSummaryRow(
 ) {
     Card(modifier = Modifier.fillMaxWidth(), onClick = open) {
         Row(
-            Modifier.fillMaxWidth().padding(12.dp),
+            Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             GameListThumbnail(thumbnail, game.title)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(game.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text(game.releaseYear?.toString() ?: "Year unknown", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                game.publisher?.takeIf(String::isNotBlank)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                Text(
+                    game.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    game.releaseYear?.toString() ?: "Year unknown",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                game.publisher?.takeIf(String::isNotBlank)
+                    ?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                 val status = buildList {
                     if (owned) add("In collection")
                     if (wishlisted) add("Wishlist")
                     if (!game.moderationStatus.equals("Approved", true)) add(game.moderationStatus)
                 }
                 if (status.isNotEmpty()) {
-                    Text(status.joinToString(" · "), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+                    Text(
+                        status.joinToString(" · "),
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.labelLarge
+                    )
                 }
             }
         }
@@ -691,7 +917,9 @@ private fun proposedFieldLabels(request: GameChangeRequest): List<String> = buil
 @Composable
 private fun GameListThumbnail(bytes: ByteArray?, title: String) {
     val bitmap = remember(bytes) { bytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) } }
-    Card(modifier = Modifier.width(68.dp).height(92.dp)) {
+    Card(modifier = Modifier
+        .width(68.dp)
+        .height(92.dp)) {
         if (bitmap == null) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text("No image", style = MaterialTheme.typography.labelSmall)
@@ -713,14 +941,22 @@ private fun GameScreen(state: MainUiState, actions: AppActions) {
     val collection = state.selectedCollection
     val owned = game.id in state.ownedGameIds
     val wishlisted = game.id in state.wishlistGameIds
-    val canEditCollection = collection?.myRole == CollectionRole.Owner || collection?.myRole == CollectionRole.Editor
+    val canEditCollection =
+        collection?.myRole == CollectionRole.Owner || collection?.myRole == CollectionRole.Editor
     var confirmDelete by rememberSaveable(game.id) { mutableStateOf(false) }
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxSize()) {
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.fillMaxSize()
+    ) {
         item {
             Header(game.title, actions.backFromGame)
-            val metadata = listOfNotNull(game.publisher, game.releaseYear?.toString()).joinToString(" · ")
+            val metadata =
+                listOfNotNull(game.publisher, game.releaseYear?.toString()).joinToString(" · ")
             if (metadata.isNotBlank()) Text(metadata)
-            if (!game.moderationStatus.equals("Approved", true)) Text(game.moderationStatus, color = MaterialTheme.colorScheme.primary)
+            if (!game.moderationStatus.equals("Approved", true)) Text(
+                game.moderationStatus,
+                color = MaterialTheme.colorScheme.primary
+            )
         }
         item { GamePhotos(state.selectedGameImages) }
         item {
@@ -729,7 +965,10 @@ private fun GameScreen(state: MainUiState, actions: AppActions) {
                     Text("Collection status", style = MaterialTheme.typography.titleMedium)
                     Text(if (owned) "Owned in ${collection?.name.orEmpty()}" else "Not owned in ${collection?.name.orEmpty()}")
                     if (collection != null) {
-                        Button(onClick = { actions.setOwned(!owned) }, enabled = canEditCollection) {
+                        Button(
+                            onClick = { actions.setOwned(!owned) },
+                            enabled = canEditCollection
+                        ) {
                             Text(if (owned) "Remove from collection" else "Add to collection")
                         }
                     }
@@ -746,13 +985,22 @@ private fun GameScreen(state: MainUiState, actions: AppActions) {
         if (state.isAdministrator) {
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(
+                        Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         Text("Administrator", style = MaterialTheme.typography.titleMedium)
                         Text("Permanently deleting this game also removes it from every collection and deletes its images from storage.")
                         if (!confirmDelete) {
-                            OutlinedButton(onClick = { confirmDelete = true }) { Text("Delete game permanently") }
+                            OutlinedButton(onClick = {
+                                confirmDelete = true
+                            }) { Text("Delete game permanently") }
                         } else {
-                            Text("This cannot be undone.", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "This cannot be undone.",
+                                color = MaterialTheme.colorScheme.error,
+                                fontWeight = FontWeight.SemiBold
+                            )
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Button(onClick = actions.deleteAdminGame) { Text("Confirm deletion") }
                                 TextButton(onClick = { confirmDelete = false }) { Text("Cancel") }
@@ -762,7 +1010,8 @@ private fun GameScreen(state: MainUiState, actions: AppActions) {
                 }
             }
         }
-        game.description?.takeIf(String::isNotBlank)?.let { description -> item { Text(description) } }
+        game.description?.takeIf(String::isNotBlank)
+            ?.let { description -> item { Text(description) } }
         if (game.languages.isNotEmpty()) item { Text("Languages: ${game.languages.joinToString { it.name }}") }
         if (game.tags.isNotEmpty()) item { Text("Tags: ${game.tags.joinToString { it.name }}") }
         if (game.barcodes.isNotEmpty()) item { Text("Barcodes: ${game.barcodes.joinToString()}") }
@@ -770,7 +1019,10 @@ private fun GameScreen(state: MainUiState, actions: AppActions) {
 }
 
 @Composable
-private fun GamePhotos(images: Map<String, ByteArray>, sides: List<String> = listOf("Front", "Back")) {
+private fun GamePhotos(
+    images: Map<String, ByteArray>,
+    sides: List<String> = listOf("Front", "Back")
+) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
         Text("Front and back", style = MaterialTheme.typography.titleMedium)
         sides.forEach { side ->
@@ -788,7 +1040,9 @@ private fun GamePhotos(images: Map<String, ByteArray>, sides: List<String> = lis
                             bitmap = bitmap.asImageBitmap(),
                             contentDescription = "$side side of the game",
                             contentScale = ContentScale.Fit,
-                            modifier = Modifier.fillMaxWidth().height(320.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(320.dp),
                         )
                     }
                 }
@@ -830,9 +1084,23 @@ private fun PrimaryNavigation(page: AppPage, actions: AppActions) {
 @Composable
 private fun GameFacts(game: GameDetails) {
     val facts = buildList {
-        if (game.minimumPlayers != null || game.maximumPlayers != null) add("Players: ${range(game.minimumPlayers, game.maximumPlayers)}")
+        if (game.minimumPlayers != null || game.maximumPlayers != null) add(
+            "Players: ${
+                range(
+                    game.minimumPlayers,
+                    game.maximumPlayers
+                )
+            }"
+        )
         game.minimumAge?.let { add("Age: $it+") }
-        if (game.minimumPlayingTimeMinutes != null || game.maximumPlayingTimeMinutes != null) add("Playing time: ${range(game.minimumPlayingTimeMinutes, game.maximumPlayingTimeMinutes)} min")
+        if (game.minimumPlayingTimeMinutes != null || game.maximumPlayingTimeMinutes != null) add(
+            "Playing time: ${
+                range(
+                    game.minimumPlayingTimeMinutes,
+                    game.maximumPlayingTimeMinutes
+                )
+            } min"
+        )
     }
     if (facts.isNotEmpty()) {
         Card(modifier = Modifier.fillMaxWidth()) {
@@ -857,17 +1125,26 @@ private fun ScannerEntryScreen(actions: AppActions) {
     var cameraError by rememberSaveable { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     var hasCameraPermission by remember {
-        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.CAMERA
+            ) == PackageManager.PERMISSION_GRANTED
+        )
     }
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-        hasCameraPermission = it
-    }
+    val permissionLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+            hasCameraPermission = it
+        }
 
     LaunchedEffect(Unit) {
         if (!hasCameraPermission) permissionLauncher.launch(Manifest.permission.CAMERA)
     }
 
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxSize()) {
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.fillMaxSize()
+    ) {
         item {
             Title("Scan game")
             Text("Align an EAN, UPC, ITF, or numeric Code 128 barcode inside the camera view.")
@@ -875,14 +1152,28 @@ private fun ScannerEntryScreen(actions: AppActions) {
         item {
             when {
                 !hasCameraPermission -> Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(
+                        Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         Text("Camera access is needed to scan a barcode. You can still type it below.")
-                        Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) { Text("Allow camera") }
+                        Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) {
+                            Text(
+                                "Allow camera"
+                            )
+                        }
                     }
                 }
+
                 detectedBarcode != null -> Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Detected: $detectedBarcode", style = MaterialTheme.typography.titleMedium)
+                    Column(
+                        Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            "Detected: $detectedBarcode",
+                            style = MaterialTheme.typography.titleMedium
+                        )
                         Button(onClick = {
                             detectedBarcode = null
                             cameraError = null
@@ -890,6 +1181,7 @@ private fun ScannerEntryScreen(actions: AppActions) {
                         }) { Text("Scan again") }
                     }
                 }
+
                 else -> Card(modifier = Modifier.fillMaxWidth()) {
                     key(scanSession) {
                         BarcodeCamera(
@@ -899,13 +1191,24 @@ private fun ScannerEntryScreen(actions: AppActions) {
                                 actions.lookupBarcode(it)
                             },
                             onError = { cameraError = it },
-                            modifier = Modifier.fillMaxWidth().height(340.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(340.dp),
                         )
                     }
                 }
             }
-            cameraError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp)) }
-            Text("Images stay on this device and are used only for barcode recognition.", style = MaterialTheme.typography.bodySmall)
+            cameraError?.let {
+                Text(
+                    it,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
+            Text(
+                "Images stay on this device and are used only for barcode recognition.",
+                style = MaterialTheme.typography.bodySmall
+            )
         }
         item {
             Text("Enter barcode manually", style = MaterialTheme.typography.titleMedium)
@@ -914,6 +1217,9 @@ private fun ScannerEntryScreen(actions: AppActions) {
                 onValueChange = { barcode = it.filter(Char::isDigit).take(14) },
                 label = { Text("8–14 digits") },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Number
+                ),
                 modifier = Modifier.fillMaxWidth(),
             )
             Button(
@@ -925,14 +1231,31 @@ private fun ScannerEntryScreen(actions: AppActions) {
     }
 }
 
+
 @Composable
 private fun ProfileScreen(profile: UserProfile?, actions: AppActions) {
     var displayName by rememberSaveable(profile?.id) { mutableStateOf(profile?.displayName.orEmpty()) }
     var username by rememberSaveable(profile?.id) { mutableStateOf(profile?.username.orEmpty()) }
     FormScreen("Profile") {
-        OutlinedTextField(displayName, { displayName = it }, label = { Text("Display name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(username, { username = it }, label = { Text("Username") }, prefix = { Text("#") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(
+            displayName,
+            { displayName = it },
+            label = { Text("Display name") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            username,
+            { username = it },
+            label = { Text("Username") },
+            prefix = { Text("#") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             Button(onClick = { actions.updateProfile(displayName, username) }) { Text("Save") }
             TextButton(onClick = actions.home) { Text("Cancel") }
         }
@@ -947,7 +1270,10 @@ private fun CollectionScreen(state: MainUiState, actions: AppActions) {
     var name by rememberSaveable(collection.id) { mutableStateOf(collection.name) }
     var query by rememberSaveable(collection.id) { mutableStateOf("") }
     var confirmDelete by rememberSaveable(collection.id) { mutableStateOf(false) }
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxSize()) {
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.fillMaxSize()
+    ) {
         item {
             Header(collection.name, actions.home)
             Text("Your role: ${collection.myRole.name}")
@@ -963,15 +1289,36 @@ private fun CollectionScreen(state: MainUiState, actions: AppActions) {
         }
         if (isOwner) {
             item {
-                OutlinedTextField(name, { name = it }, label = { Text("Collection name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                Button(onClick = { actions.renameCollection(name) }, enabled = name.isNotBlank() && name != collection.name) { Text("Rename") }
+                OutlinedTextField(
+                    name,
+                    { name = it },
+                    label = { Text("Collection name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Button(
+                    onClick = { actions.renameCollection(name) },
+                    enabled = name.isNotBlank() && name != collection.name
+                ) { Text("Rename") }
             }
             item {
                 Text("Invite by username", style = MaterialTheme.typography.titleMedium)
-                OutlinedTextField(query, { query = it }, label = { Text("Username") }, prefix = { Text("#") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(
+                    query,
+                    { query = it },
+                    label = { Text("Username") },
+                    prefix = { Text("#") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
                 OutlinedButton(onClick = { actions.searchUsers(query) }) { Text("Search") }
             }
-            items(state.searchResults, key = { it.id }) { user -> SearchResultRow(user, actions.invite) }
+            items(state.searchResults, key = { it.id }) { user ->
+                SearchResultRow(
+                    user,
+                    actions.invite
+                )
+            }
         }
         item { Text("Members", style = MaterialTheme.typography.titleMedium) }
         items(state.members, key = { it.userId }) { member -> MemberRow(member, isOwner, actions) }
@@ -982,7 +1329,10 @@ private fun CollectionScreen(state: MainUiState, actions: AppActions) {
                     TextButton(onClick = { confirmDelete = true }) { Text("Delete collection") }
                 } else {
                     Text("Delete this collection permanently?")
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         Button(onClick = actions.deleteCollection) { Text("Confirm delete") }
                         TextButton(onClick = { confirmDelete = false }) { Text("Cancel") }
                     }
@@ -998,9 +1348,22 @@ private fun SearchResultRow(user: UserSearchResult, invite: (String, CollectionR
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(user.displayName, fontWeight = FontWeight.SemiBold)
             Text("#${user.username}")
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { invite(user.id, CollectionRole.Viewer) }) { Text("Invite viewer") }
-                OutlinedButton(onClick = { invite(user.id, CollectionRole.Editor) }) { Text("Invite editor") }
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(onClick = {
+                    invite(
+                        user.id,
+                        CollectionRole.Viewer
+                    )
+                }) { Text("Invite viewer") }
+                OutlinedButton(onClick = {
+                    invite(
+                        user.id,
+                        CollectionRole.Editor
+                    )
+                }) { Text("Invite editor") }
             }
         }
     }
@@ -1013,8 +1376,16 @@ private fun MemberRow(member: CollectionMember, canManage: Boolean, actions: App
             Text(member.displayName, fontWeight = FontWeight.SemiBold)
             Text("#${member.username} · ${member.role.name}")
             if (canManage && member.role != CollectionRole.Owner) {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(onClick = { actions.updateMember(member.userId, if (member.role == CollectionRole.Viewer) CollectionRole.Editor else CollectionRole.Viewer) }) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    TextButton(onClick = {
+                        actions.updateMember(
+                            member.userId,
+                            if (member.role == CollectionRole.Viewer) CollectionRole.Editor else CollectionRole.Viewer
+                        )
+                    }) {
                         Text(if (member.role == CollectionRole.Viewer) "Make editor" else "Make viewer")
                     }
                     TextButton(onClick = { actions.transferOwnership(member.userId) }) { Text("Transfer ownership") }
@@ -1027,7 +1398,10 @@ private fun MemberRow(member: CollectionMember, canManage: Boolean, actions: App
 
 @Composable
 private fun InvitationsScreen(invitations: List<CollectionInvitation>, actions: AppActions) {
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxSize()) {
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.fillMaxSize()
+    ) {
         item { Header("Invitations", actions.home) }
         if (invitations.isEmpty()) item { Text("No pending invitations.") }
         items(invitations, key = { it.id }) { invitation ->
@@ -1035,9 +1409,22 @@ private fun InvitationsScreen(invitations: List<CollectionInvitation>, actions: 
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(invitation.collectionName, fontWeight = FontWeight.SemiBold)
                     Text("Role: ${invitation.role.name}")
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { actions.respondToInvitation(invitation.id, true) }) { Text("Accept") }
-                        OutlinedButton(onClick = { actions.respondToInvitation(invitation.id, false) }) { Text("Decline") }
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(onClick = {
+                            actions.respondToInvitation(
+                                invitation.id,
+                                true
+                            )
+                        }) { Text("Accept") }
+                        OutlinedButton(onClick = {
+                            actions.respondToInvitation(
+                                invitation.id,
+                                false
+                            )
+                        }) { Text("Decline") }
                     }
                 }
             }
@@ -1047,7 +1434,10 @@ private fun InvitationsScreen(invitations: List<CollectionInvitation>, actions: 
 
 @Composable
 private fun NotificationsScreen(state: MainUiState, actions: AppActions) {
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxSize()) {
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxSize()
+    ) {
         item {
             Header("Notifications", actions.home)
             if (state.unreadNotificationCount > 0) {
@@ -1056,11 +1446,19 @@ private fun NotificationsScreen(state: MainUiState, actions: AppActions) {
         }
         if (state.notifications.isEmpty()) item { Text("No notifications yet.") }
         items(state.notifications, key = { it.id }) { notification ->
-            Card(modifier = Modifier.fillMaxWidth(), onClick = { actions.openNotification(notification) }) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = { actions.openNotification(notification) }) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(notification.title, fontWeight = if (notification.readAtUtc == null) FontWeight.Bold else FontWeight.Normal)
+                    Text(
+                        notification.title,
+                        fontWeight = if (notification.readAtUtc == null) FontWeight.Bold else FontWeight.Normal
+                    )
                     Text(notification.body)
-                    Text(notification.createdAtUtc.take(16).replace('T', ' '), style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        notification.createdAtUtc.take(16).replace('T', ' '),
+                        style = MaterialTheme.typography.bodySmall
+                    )
                 }
             }
         }
@@ -1069,20 +1467,41 @@ private fun NotificationsScreen(state: MainUiState, actions: AppActions) {
 
 @Composable
 private fun CorrectionsScreen(state: MainUiState, actions: AppActions) {
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxSize()) {
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxSize()
+    ) {
         item { Header("My corrections", actions.home) }
         if (state.changeRequests.isEmpty()) item { Text("No correction requests yet. Open an approved game to suggest one.") }
         items(state.changeRequests, key = { it.id }) { request ->
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(request.gameTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        request.gameTitle,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
                     Text(request.status, color = MaterialTheme.colorScheme.primary)
-                    val changes = runCatching { JSONObject(request.proposedChangesJson) }.getOrNull()
-                    changes?.keys()?.asSequence()?.toList()?.takeIf(List<String>::isNotEmpty)?.let { keys ->
-                        Text("Proposed: ${keys.joinToString { it.replace(Regex("([a-z])([A-Z])"), "$1 $2").lowercase() }}")
-                    }
+                    val changes =
+                        runCatching { JSONObject(request.proposedChangesJson) }.getOrNull()
+                    changes?.keys()?.asSequence()?.toList()?.takeIf(List<String>::isNotEmpty)
+                        ?.let { keys ->
+                            Text(
+                                "Proposed: ${
+                                    keys.joinToString {
+                                        it.replace(
+                                            Regex("([a-z])([A-Z])"),
+                                            "$1 $2"
+                                        ).lowercase()
+                                    }
+                                }"
+                            )
+                        }
                     request.adminComment?.let { Text("Moderator: $it") }
-                    Text("Updated ${request.updatedAtUtc.take(16).replace('T', ' ')}", style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        "Updated ${request.updatedAtUtc.take(16).replace('T', ' ')}",
+                        style = MaterialTheme.typography.bodySmall
+                    )
                 }
             }
         }
@@ -1095,20 +1514,74 @@ private fun CorrectionEditorScreen(game: GameDetails, actions: AppActions) {
     var description by rememberSaveable(game.id) { mutableStateOf(game.description.orEmpty()) }
     var publisher by rememberSaveable(game.id) { mutableStateOf(game.publisher.orEmpty()) }
     var year by rememberSaveable(game.id) { mutableStateOf(game.releaseYear?.toString().orEmpty()) }
-    var minPlayers by rememberSaveable(game.id) { mutableStateOf(game.minimumPlayers?.toString().orEmpty()) }
-    var maxPlayers by rememberSaveable(game.id) { mutableStateOf(game.maximumPlayers?.toString().orEmpty()) }
-    var minAge by rememberSaveable(game.id) { mutableStateOf(game.minimumAge?.toString().orEmpty()) }
-    var minTime by rememberSaveable(game.id) { mutableStateOf(game.minimumPlayingTimeMinutes?.toString().orEmpty()) }
-    var maxTime by rememberSaveable(game.id) { mutableStateOf(game.maximumPlayingTimeMinutes?.toString().orEmpty()) }
+    var minPlayers by rememberSaveable(game.id) {
+        mutableStateOf(
+            game.minimumPlayers?.toString().orEmpty()
+        )
+    }
+    var maxPlayers by rememberSaveable(game.id) {
+        mutableStateOf(
+            game.maximumPlayers?.toString().orEmpty()
+        )
+    }
+    var minAge by rememberSaveable(game.id) {
+        mutableStateOf(
+            game.minimumAge?.toString().orEmpty()
+        )
+    }
+    var minTime by rememberSaveable(game.id) {
+        mutableStateOf(
+            game.minimumPlayingTimeMinutes?.toString().orEmpty()
+        )
+    }
+    var maxTime by rememberSaveable(game.id) {
+        mutableStateOf(
+            game.maximumPlayingTimeMinutes?.toString().orEmpty()
+        )
+    }
     var frontImageUri by rememberSaveable(game.id) { mutableStateOf<String?>(null) }
     var backImageUri by rememberSaveable(game.id) { mutableStateOf<String?>(null) }
-    val frontPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> frontImageUri = uri?.toString() }
-    val backPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> backImageUri = uri?.toString() }
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxSize()) {
-        item { Header("Suggest correction", { actions.openGame(game.id) }); Text("Only changed fields are sent for moderator review. The current catalog entry stays visible until approval.") }
-        item { OutlinedTextField(title, { title = it }, label = { Text("Title") }, modifier = Modifier.fillMaxWidth()) }
-        item { OutlinedTextField(description, { description = it }, label = { Text("Description") }, modifier = Modifier.fillMaxWidth()) }
-        item { OutlinedTextField(publisher, { publisher = it }, label = { Text("Publisher") }, modifier = Modifier.fillMaxWidth()) }
+    val frontPicker =
+        rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+            frontImageUri = uri?.toString()
+        }
+    val backPicker =
+        rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+            backImageUri = uri?.toString()
+        }
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        item {
+            Header(
+                "Suggest correction",
+                { actions.openGame(game.id) }); Text("Only changed fields are sent for moderator review. The current catalog entry stays visible until approval.")
+        }
+        item {
+            OutlinedTextField(
+                title,
+                { title = it },
+                label = { Text("Title") },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        item {
+            OutlinedTextField(
+                description,
+                { description = it },
+                label = { Text("Description") },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        item {
+            OutlinedTextField(
+                publisher,
+                { publisher = it },
+                label = { Text("Publisher") },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
         item {
             NumberField("Release year", year) { year = it }
             NumberField("Minimum players", minPlayers) { minPlayers = it }
@@ -1120,18 +1593,38 @@ private fun CorrectionEditorScreen(game: GameDetails, actions: AppActions) {
         item {
             Text("Replacement images (optional)", style = MaterialTheme.typography.titleMedium)
             Text("The existing image remains visible until an administrator approves this correction.")
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(top = 8.dp)
+            ) {
                 OutlinedButton(onClick = { frontPicker.launch("image/*") }) { Text(if (frontImageUri == null) "Replace front" else "Front selected") }
                 OutlinedButton(onClick = { backPicker.launch("image/*") }) { Text(if (backImageUri == null) "Replace back" else "Back selected") }
-                if (frontImageUri != null) TextButton(onClick = { frontImageUri = null }) { Text("Clear front") }
-                if (backImageUri != null) TextButton(onClick = { backImageUri = null }) { Text("Clear back") }
+                if (frontImageUri != null) TextButton(onClick = {
+                    frontImageUri = null
+                }) { Text("Clear front") }
+                if (backImageUri != null) TextButton(onClick = {
+                    backImageUri = null
+                }) { Text("Clear back") }
             }
         }
         item {
-            Button(onClick = { actions.submitCorrection(
-                CorrectionForm(title, description, publisher, year.toIntOrNull(), minPlayers.toIntOrNull(), maxPlayers.toIntOrNull(), minAge.toIntOrNull(), minTime.toIntOrNull(), maxTime.toIntOrNull()),
-                frontImageUri?.let(Uri::parse), backImageUri?.let(Uri::parse),
-            ) }) {
+            Button(onClick = {
+                actions.submitCorrection(
+                    CorrectionForm(
+                        title,
+                        description,
+                        publisher,
+                        year.toIntOrNull(),
+                        minPlayers.toIntOrNull(),
+                        maxPlayers.toIntOrNull(),
+                        minAge.toIntOrNull(),
+                        minTime.toIntOrNull(),
+                        maxTime.toIntOrNull()
+                    ),
+                    frontImageUri?.let(Uri::parse), backImageUri?.let(Uri::parse),
+                )
+            }) {
                 Text("Submit for review")
             }
         }
@@ -1140,7 +1633,18 @@ private fun CorrectionEditorScreen(game: GameDetails, actions: AppActions) {
 
 @Composable
 private fun NumberField(label: String, value: String, onValue: (String) -> Unit) {
-    OutlinedTextField(value, { onValue(it.filter(Char::isDigit).take(4)) }, label = { Text(label) }, singleLine = true, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
+    OutlinedTextField(
+        value,
+        { onValue(it.filter(Char::isDigit).take(4)) },
+        label = { Text(label) },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.Number
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 8.dp)
+    )
 }
 
 @Composable
@@ -1148,7 +1652,10 @@ private fun SettingsScreen(state: MainUiState, actions: AppActions) {
     var confirmRevoke by rememberSaveable { mutableStateOf(false) }
     var confirmClear by rememberSaveable { mutableStateOf(false) }
     val latest = state.syncScopes.mapNotNull { it.lastSyncedAtUtc }.maxOrNull()
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxSize()) {
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.fillMaxSize()
+    ) {
         item { Header("Settings", actions.home) }
         item {
             Card(modifier = Modifier.fillMaxWidth()) {
@@ -1164,10 +1671,23 @@ private fun SettingsScreen(state: MainUiState, actions: AppActions) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text("Synchronization", style = MaterialTheme.typography.titleMedium)
                     Text("${state.syncScopes.size} synchronized scopes · ${state.pendingMutationCount} queued changes")
-                    Text(latest?.let { "Last successful update: ${it.take(16).replace('T', ' ')} UTC" } ?: "A full synchronization has not completed yet.")
-                    Text("Server: ${BuildConfig.API_BASE_URL}", style = MaterialTheme.typography.bodySmall)
-                    Text("App ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) · ${BuildConfig.BUILD_REVISION}", style = MaterialTheme.typography.bodySmall)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(latest?.let {
+                        "Last successful update: ${
+                            it.take(16).replace('T', ' ')
+                        } UTC"
+                    } ?: "A full synchronization has not completed yet.")
+                    Text(
+                        "Server: ${BuildConfig.API_BASE_URL}",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Text(
+                        "App ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) · ${BuildConfig.BUILD_REVISION}",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         Button(onClick = actions.retrySync) { Text("Sync now") }
                         OutlinedButton(onClick = actions.rebuildSync) { Text("Rebuild sync") }
                     }
@@ -1177,11 +1697,21 @@ private fun SettingsScreen(state: MainUiState, actions: AppActions) {
         item {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Storage and troubleshooting", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Storage and troubleshooting",
+                        style = MaterialTheme.typography.titleMedium
+                    )
                     Text("Clearing cached content keeps your login and drafts, then downloads trusted server data again.")
-                    if (!confirmClear) OutlinedButton(onClick = { confirmClear = true }) { Text("Clear cached content") }
-                    else FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { confirmClear = false; actions.clearCache() }) { Text("Confirm clear") }
+                    if (!confirmClear) OutlinedButton(onClick = {
+                        confirmClear = true
+                    }) { Text("Clear cached content") }
+                    else FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(onClick = {
+                            confirmClear = false; actions.clearCache()
+                        }) { Text("Confirm clear") }
                         TextButton(onClick = { confirmClear = false }) { Text("Cancel") }
                     }
                 }
@@ -1190,12 +1720,21 @@ private fun SettingsScreen(state: MainUiState, actions: AppActions) {
         if (state.recentDiagnostics.isNotEmpty()) {
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Column(
+                        Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
                         Text("Recent diagnostics", style = MaterialTheme.typography.titleMedium)
-                        Text("These entries contain event categories and reference IDs, not account content.", style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            "These entries contain event categories and reference IDs, not account content.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
                         state.recentDiagnostics.take(5).forEach { event ->
                             val parts = event.split('|', limit = 3)
-                            Text(parts.drop(1).joinToString(" · ").ifBlank { event }, style = MaterialTheme.typography.bodySmall)
+                            Text(
+                                parts.drop(1).joinToString(" · ").ifBlank { event },
+                                style = MaterialTheme.typography.bodySmall
+                            )
                         }
                     }
                 }
@@ -1203,10 +1742,15 @@ private fun SettingsScreen(state: MainUiState, actions: AppActions) {
         }
         item {
             Text("Device and session", style = MaterialTheme.typography.titleMedium)
-            if (!confirmRevoke) OutlinedButton(onClick = { confirmRevoke = true }) { Text("Revoke this device") }
+            if (!confirmRevoke) OutlinedButton(onClick = {
+                confirmRevoke = true
+            }) { Text("Revoke this device") }
             else {
                 Text("Revoking signs this device out and requires activation on the next sign-in.")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     Button(onClick = actions.revokeDevice) { Text("Revoke and sign out") }
                     TextButton(onClick = { confirmRevoke = false }) { Text("Cancel") }
                 }
@@ -1218,7 +1762,11 @@ private fun SettingsScreen(state: MainUiState, actions: AppActions) {
 
 @Composable
 private fun Header(title: String, back: () -> Unit) {
-    FlowRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
         Title(title)
         TextButton(onClick = back) { Text("Back") }
     }
@@ -1226,7 +1774,12 @@ private fun Header(title: String, back: () -> Unit) {
 
 @Composable
 private fun FormScreen(title: String, content: @Composable ColumnScope.() -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth().padding(top = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
         Title(title)
         content()
     }

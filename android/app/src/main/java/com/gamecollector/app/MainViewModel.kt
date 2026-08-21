@@ -209,6 +209,56 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun showHome() = mutableState.update { it.copy(page = AppPage.Home, message = null) }
 
+    fun navigateBack(): Boolean {
+        val destination = when (state.value.page) {
+            AppPage.Game ->
+                state.value.gameReturnPage
+
+            AppPage.CorrectionEditor ->
+                AppPage.Game
+
+            AppPage.DraftEditor,
+            AppPage.ServerSubmissionEditor ->
+                AppPage.Drafts
+
+            AppPage.AdminSubmission,
+            AppPage.AdminCorrection ->
+                AppPage.Admin
+
+            AppPage.Profile,
+            AppPage.Settings,
+            AppPage.Collection,
+            AppPage.Invitations,
+            AppPage.Notifications,
+            AppPage.Corrections,
+            AppPage.Drafts,
+            AppPage.Admin ->
+                AppPage.Home
+
+            AppPage.Home,
+            AppPage.Library,
+            AppPage.Catalog,
+            AppPage.Scanner,
+            AppPage.SignIn,
+            AppPage.Loading,
+            AppPage.Onboarding ->
+                null
+        }
+
+        if (destination == null) {
+            return false
+        }
+
+        mutableState.update {
+            it.copy(
+                page = destination,
+                message = null,
+            )
+        }
+
+        return true
+    }
+
     fun showLibrary() {
         val collectionId = state.value.selectedCollectionId
             ?: return showMessage("Create or select a collection first.")

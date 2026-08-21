@@ -39,6 +39,8 @@ import com.gamecollector.core.database.LocalGameDraft
 import com.gamecollector.core.database.PendingMediaUpload
 import com.gamecollector.core.network.ReferenceData
 import com.gamecollector.core.network.GameSubmission
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 
 @Composable
 internal fun DraftListScreen(
@@ -146,7 +148,7 @@ internal fun ServerSubmissionEditorScreen(
         }
         item {
             DraftSection("Gameplay") {
-                DraftTextField(releaseYear, { releaseYear = it.filter(Char::isDigit).take(4) }, "Release year")
+                DraftNumberField(releaseYear, { releaseYear = it.filter(Char::isDigit).take(4) }, "Release year")
                 NumberPair("Players", minimumPlayers, { minimumPlayers = it }, maximumPlayers, { maximumPlayers = it })
                 DraftTextField(minimumAge, { minimumAge = it.filter(Char::isDigit).take(3) }, "Minimum age")
                 NumberPair("Playing time (minutes)", minimumTime, { minimumTime = it }, maximumTime, { maximumTime = it })
@@ -214,9 +216,9 @@ internal fun DraftEditorScreen(
             1 -> {
                 item {
                     DraftSection("Gameplay") {
-                        DraftTextField(releaseYear, { releaseYear = it.filter(Char::isDigit).take(4) }, "Release year")
+                        DraftNumberField(releaseYear, { releaseYear = it.filter(Char::isDigit).take(4) }, "Release year")
                         NumberPair("Players", minimumPlayers, { minimumPlayers = it }, maximumPlayers, { maximumPlayers = it })
-                        DraftTextField(minimumAge, { minimumAge = it.filter(Char::isDigit).take(3) }, "Minimum age")
+                        DraftNumberField(minimumAge, { minimumAge = it.filter(Char::isDigit).take(3) }, "Minimum age")
                         NumberPair("Playing time (minutes)", minimumTime, { minimumTime = it }, maximumTime, { maximumTime = it })
                     }
                 }
@@ -304,14 +306,18 @@ private fun SelectionSection(title: String, values: List<ReferenceData>, selecte
 private fun NumberPair(label: String, minimum: String, setMinimum: (String) -> Unit, maximum: String, setMaximum: (String) -> Unit) {
     Text(label, style = MaterialTheme.typography.labelLarge)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(minimum, { setMinimum(it.filter(Char::isDigit).take(4)) }, label = { Text("Minimum") }, singleLine = true, modifier = Modifier.weight(1f))
-        OutlinedTextField(maximum, { setMaximum(it.filter(Char::isDigit).take(4)) }, label = { Text("Maximum") }, singleLine = true, modifier = Modifier.weight(1f))
+        OutlinedTextField(minimum, { setMinimum(it.filter(Char::isDigit).take(4)) }, label = { Text("Minimum") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
+        OutlinedTextField(maximum, { setMaximum(it.filter(Char::isDigit).take(4)) }, label = { Text("Maximum") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
     }
 }
 
 @Composable
 private fun DraftTextField(value: String, update: (String) -> Unit, label: String) =
     OutlinedTextField(value, update, label = { Text(label) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+
+@Composable
+private fun DraftNumberField(value: String, update: (String) -> Unit, label: String) =
+    OutlinedTextField(value, update, label = { Text(label) }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
 
 @Composable
 private fun DraftSection(title: String, content: @Composable ColumnScope.() -> Unit) {

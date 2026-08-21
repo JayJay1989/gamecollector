@@ -3,7 +3,6 @@ plugins { alias(libs.plugins.android.library) }
 android {
     namespace = "com.gamecollector.core.sync"
     compileSdk = 36
-    compileSdkExtension = 1
     defaultConfig {
         minSdk = 26
         manifestPlaceholders["appAuthRedirectScheme"] = "com.gamecollector.app"
@@ -21,6 +20,7 @@ android {
             )
         }
     }
+    compileSdkMinor = 1
 }
 
 dependencies {

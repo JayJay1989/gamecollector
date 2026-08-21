@@ -23,7 +23,6 @@ val hasReleaseVersionName = providers.gradleProperty("gamecollector.versionName"
 android {
     namespace = "com.gamecollector.app"
     compileSdk = 36
-    compileSdkExtension = 1
 
     defaultConfig {
         applicationId = "com.gamecollector.app"
@@ -86,6 +85,7 @@ android {
     sourceSets.getByName("androidTest").assets.directories.add(
         project(":core:database").file("schemas").path,
     )
+    compileSdkMinor = 1
 }
 
 tasks.register("verifyProductionRelease") {
