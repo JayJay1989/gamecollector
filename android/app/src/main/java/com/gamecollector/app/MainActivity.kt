@@ -39,8 +39,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -236,7 +234,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private data class AppActions(
+internal data class AppActions(
     val signIn: () -> Unit,
     val onboard: (String, String, String) -> Unit,
     val home: () -> Unit,
@@ -500,10 +498,7 @@ private fun HomeScreen(state: MainUiState, actions: AppActions) {
                             fontWeight = FontWeight.SemiBold
                         )
                         Text("${state.ownedGameIds.size} games · ${it.myRole.name}")
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = actions.library) { Text("Browse games") }
-                            OutlinedButton(onClick = actions.manageCollection) { Text("Manage") }
-                        }
+                        OutlinedButton(onClick = actions.manageCollection) { Text("Manage collection") }
                     }
                 }
             } ?: Text("Create a collection to get started.")
@@ -570,7 +565,6 @@ private fun HomeScreen(state: MainUiState, actions: AppActions) {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = actions.profile) { Text("Profile") }
                         OutlinedButton(onClick = actions.settings) { Text("Settings") }
-                        TextButton(onClick = actions.signOut) { Text("Sign out") }
                     }
                 }
             }
@@ -1110,36 +1104,6 @@ private fun GamePhotos(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun PrimaryNavigation(page: AppPage, actions: AppActions) {
-    NavigationBar {
-        NavigationBarItem(
-            selected = page == AppPage.Library,
-            onClick = actions.library,
-            icon = { Text("▦") },
-            label = { Text("Collection") },
-        )
-        NavigationBarItem(
-            selected = page == AppPage.Catalog,
-            onClick = { actions.searchGames("") },
-            icon = { Text("⌕") },
-            label = { Text("Search") },
-        )
-        NavigationBarItem(
-            selected = page == AppPage.Scanner,
-            onClick = actions.scan,
-            icon = { Text("▣") },
-            label = { Text("Scan") },
-        )
-        NavigationBarItem(
-            selected = page == AppPage.Home,
-            onClick = actions.home,
-            icon = { Text("•••") },
-            label = { Text("More") },
-        )
     }
 }
 
