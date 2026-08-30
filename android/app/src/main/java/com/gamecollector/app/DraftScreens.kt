@@ -100,7 +100,9 @@ internal fun DraftListScreen(
             }
         }
         if (drafts.isNotEmpty()) item { Text("On this device", style = MaterialTheme.typography.titleMedium) }
-        if (drafts.isEmpty() && serverSubmissions.isEmpty()) item { Text("No drafts yet.") }
+        if (drafts.isEmpty() && serverSubmissions.isEmpty()) item {
+            EmptyState("No submissions yet", "Create a draft when a game is missing from the catalog.")
+        }
         items(drafts, key = { it.id }) { draft ->
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -418,11 +420,9 @@ private fun keyboardActions(focusManager: androidx.compose.ui.focus.FocusManager
 
 @Composable
 private fun DraftSection(title: String, content: @Composable ColumnScope.() -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            content()
-        }
+    AppSectionCard {
+        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        content()
     }
 }
 

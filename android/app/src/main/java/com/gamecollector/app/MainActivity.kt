@@ -303,6 +303,7 @@ private fun GameCollectorApp(state: MainUiState, actions: AppActions) {
     val primaryPage =
         state.page in setOf(AppPage.Library, AppPage.Catalog, AppPage.Scanner, AppPage.Home)
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
             if (primaryPage) PrimaryNavigation(state.page, actions)
         },
@@ -318,7 +319,8 @@ private fun GameCollectorApp(state: MainUiState, actions: AppActions) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .widthIn(max = 840.dp)
-                    .padding(horizontal = horizontalPadding),
+                    .padding(horizontal = horizontalPadding)
+                    .padding(top = 8.dp, bottom = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 when (state.page) {
@@ -475,16 +477,11 @@ private fun HomeScreen(state: MainUiState, actions: AppActions) {
         modifier = Modifier.fillMaxSize()
     ) {
         item {
-            Title("More")
-            state.profile?.let { Text("${it.displayName}  •  #${it.username}") }
+            Title("More", state.profile?.let { "${it.displayName}  •  #${it.username}" })
         }
         item {
             state.selectedCollection?.let {
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(
-                        Modifier.padding(18.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
+                AppSectionCard {
                         Text(
                             "Current collection",
                             style = MaterialTheme.typography.labelLarge,
@@ -498,7 +495,6 @@ private fun HomeScreen(state: MainUiState, actions: AppActions) {
                         Text("${state.ownedGameIds.size} games · ${it.myRole.name}")
                         OutlinedButton(onClick = actions.manageCollection) { Text("Manage collection") }
                     }
-                }
             } ?: Text("Create a collection to get started.")
         }
         if (state.collections.size > 1) {
@@ -527,66 +523,60 @@ private fun HomeScreen(state: MainUiState, actions: AppActions) {
             }
         }
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        "Activity",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedButton(onClick = actions.notifications) {
-                            Text(if (state.unreadNotificationCount == 0) "Notifications" else "Notifications (${state.unreadNotificationCount})")
-                        }
-                        OutlinedButton(onClick = actions.invitations) { Text("Invitations") }
-                        OutlinedButton(onClick = actions.friends) { Text("Friends") }
-                        OutlinedButton(onClick = actions.drafts) { Text("Submissions") }
-                        OutlinedButton(onClick = actions.corrections) { Text("Corrections") }
-                        if (state.isAdministrator) {
-                            Button(onClick = actions.admin) { Text("Admin (${state.adminSubmissions.size})") }
-                        }
+            AppSectionCard {
+                Text(
+                    "Activity",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(onClick = actions.notifications) {
+                        Text(if (state.unreadNotificationCount == 0) "Notifications" else "Notifications (${state.unreadNotificationCount})")
+                    }
+                    OutlinedButton(onClick = actions.invitations) { Text("Invitations") }
+                    OutlinedButton(onClick = actions.friends) { Text("Friends") }
+                    OutlinedButton(onClick = actions.drafts) { Text("Submissions") }
+                    OutlinedButton(onClick = actions.corrections) { Text("Corrections") }
+                    if (state.isAdministrator) {
+                        Button(onClick = actions.admin) { Text("Admin (${state.adminSubmissions.size})") }
                     }
                 }
             }
         }
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        "Account",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = actions.profile) { Text("Profile") }
-                        OutlinedButton(onClick = actions.settings) { Text("Settings") }
-                    }
+            AppSectionCard {
+                Text(
+                    "Account",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = actions.profile) { Text("Profile") }
+                    OutlinedButton(onClick = actions.settings) { Text("Settings") }
                 }
             }
         }
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        "Create another collection",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    OutlinedTextField(
-                        newCollection,
-                        { newCollection = it.capitalizeFirstLetter() },
-                        label = { Text("Collection name") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Button(onClick = {
-                        actions.createCollection(newCollection); newCollection = ""
-                    }, enabled = newCollection.isNotBlank()) {
-                        Text("Create collection")
-                    }
+            AppSectionCard {
+                Text(
+                    "Create another collection",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                OutlinedTextField(
+                    newCollection,
+                    { newCollection = it.capitalizeFirstLetter() },
+                    label = { Text("Collection name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Button(onClick = {
+                    actions.createCollection(newCollection); newCollection = ""
+                }, enabled = newCollection.isNotBlank()) {
+                    Text("Create collection")
                 }
             }
         }
@@ -603,8 +593,10 @@ private fun LibraryScreen(state: MainUiState, actions: AppActions) {
         modifier = Modifier.fillMaxSize().imePadding()
     ) {
         item {
-            Title(collection?.name ?: "My collection")
-            Text("${state.ownedGameIds.size} game${if (state.ownedGameIds.size == 1) "" else "s"} in this collection")
+            Title(
+                collection?.name ?: "My collection",
+                "${state.ownedGameIds.size} game${if (state.ownedGameIds.size == 1) "" else "s"} in this collection",
+            )
             OutlinedTextField(
                 value = query,
                 onValueChange = {
@@ -623,12 +615,10 @@ private fun LibraryScreen(state: MainUiState, actions: AppActions) {
         }
         if (state.collectionGames.isEmpty()) {
             item {
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        if (query.isBlank()) "This collection does not contain any games yet." else "No games match ‘$query’.",
-                        modifier = Modifier.padding(18.dp),
-                    )
-                }
+                EmptyState(
+                    title = if (query.isBlank()) "Your shelf is ready" else "No matches",
+                    message = if (query.isBlank()) "Add games from Search or scan a barcode to start this collection." else "No games match ‘$query’.",
+                )
             }
         }
         items(state.collectionGames, key = { it.id }) { game ->
@@ -661,7 +651,9 @@ private fun AdminQueueScreen(state: MainUiState, actions: AppActions) {
                 fontWeight = FontWeight.SemiBold
             )
         }
-        if (state.adminSubmissions.isEmpty()) item { Text("There are no pending game submissions.") }
+        if (state.adminSubmissions.isEmpty()) item {
+            EmptyState("No new games", "There are no game submissions waiting for review.")
+        }
         items(state.adminSubmissions, key = { it.game.id }) { submission ->
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -686,7 +678,9 @@ private fun AdminQueueScreen(state: MainUiState, actions: AppActions) {
                 fontWeight = FontWeight.SemiBold
             )
         }
-        if (state.adminChangeRequests.isEmpty()) item { Text("There are no pending corrections.") }
+        if (state.adminChangeRequests.isEmpty()) item {
+            EmptyState("No corrections", "There are no suggested corrections waiting for review.")
+        }
         items(state.adminChangeRequests, key = { it.id }) { request ->
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -877,8 +871,7 @@ private fun CatalogScreen(state: MainUiState, actions: AppActions) {
         modifier = Modifier.fillMaxSize()
     ) {
         item {
-            Title("Find games")
-            Text("Search the full game catalog and add games to your collection.")
+            Title("Find games", "Search the full catalog and add games to your collection.")
             OutlinedTextField(
                 query,
                 { query = it },
@@ -898,6 +891,9 @@ private fun CatalogScreen(state: MainUiState, actions: AppActions) {
                     modifier = Modifier.padding(top = 8.dp),
                 )
             }
+        }
+        if (state.catalogQuery.isNotBlank() && state.games.isEmpty()) {
+            item { EmptyState("No games found", "Try another title or scan the barcode instead.") }
         }
         items(state.games, key = { it.id }) { game ->
             GameSummaryRow(
@@ -919,7 +915,7 @@ private fun GameSummaryRow(
     wishlisted: Boolean,
     open: () -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth(), onClick = open) {
+    AppClickableCard(onClick = open) {
         Row(
             Modifier
                 .fillMaxWidth()
@@ -940,17 +936,13 @@ private fun GameSummaryRow(
                 )
                 game.publisher?.takeIf(String::isNotBlank)
                     ?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                val status = buildList {
-                    if (owned) add("In collection")
-                    if (wishlisted) add("Wishlist")
-                    if (!game.moderationStatus.equals("Approved", true)) add(game.moderationStatus)
-                }
-                if (status.isNotEmpty()) {
-                    Text(
-                        status.joinToString(" · "),
-                        color = MaterialTheme.colorScheme.primary,
-                        style = MaterialTheme.typography.labelLarge
-                    )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    if (owned) StatusPill("In collection", emphasized = true)
+                    if (wishlisted) StatusPill("Wishlist")
+                    if (!game.moderationStatus.equals("Approved", true)) StatusPill(game.moderationStatus)
                 }
             }
         }
@@ -1828,26 +1820,24 @@ private fun SettingsScreen(state: MainUiState, actions: AppActions) {
     ) {
         item { Header("Settings", actions.home) }
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Appearance", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "Choose a theme, or follow your phone automatically.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        ThemeMode.entries.forEach { themeMode ->
-                            FilterChip(
-                                selected = state.themeMode == themeMode,
-                                onClick = { actions.setThemeMode(themeMode) },
-                                label = { Text(themeMode.name) },
-                                modifier = Modifier.testTag("theme-${themeMode.name.lowercase()}"),
-                            )
+            AppSectionCard {
+                Text("Appearance", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Choose a theme, or follow your phone automatically.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ThemeMode.entries.forEach { themeMode ->
+                        FilterChip(
+                            selected = state.themeMode == themeMode,
+                            onClick = { actions.setThemeMode(themeMode) },
+                            label = { Text(themeMode.name) },
+                            modifier = Modifier.testTag("theme-${themeMode.name.lowercase()}"),
+                        )
                         }
-                    }
                 }
             }
         }
