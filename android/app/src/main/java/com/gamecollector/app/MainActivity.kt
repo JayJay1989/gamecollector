@@ -20,12 +20,16 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
@@ -47,10 +51,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -71,6 +77,7 @@ import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.material3.TextFieldLabelScope
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -88,6 +95,8 @@ import com.gamecollector.core.network.UserProfile
 import com.gamecollector.core.network.UserSearchResult
 import com.gamecollector.core.database.LocalNotification
 import org.json.JSONObject
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
@@ -577,7 +586,8 @@ private fun LibraryScreen(state: MainUiState, actions: AppActions) {
     var query by rememberSaveable(collection?.id) { mutableStateOf(state.collectionQuery) }
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(10.dp),
-        modifier = Modifier.fillMaxSize()
+        contentPadding = PaddingValues(bottom = 32.dp),
+        modifier = Modifier.fillMaxSize().imePadding()
     ) {
         item {
             Title(collection?.name ?: "My collection")
@@ -1674,6 +1684,8 @@ private fun CorrectionEditorScreen(game: GameDetails, actions: AppActions) {
     var frontImageUri by rememberSaveable(game.id) { mutableStateOf<String?>(null) }
     var backImageUri by rememberSaveable(game.id) { mutableStateOf<String?>(null) }
     val focusManager = LocalFocusManager.current
+    val descriptionBringIntoViewRequester = remember { BringIntoViewRequester() }
+    val coroutineScope = rememberCoroutineScope()
     val frontPicker =
         rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
             frontImageUri = uri?.toString()
@@ -1699,7 +1711,20 @@ private fun CorrectionEditorScreen(game: GameDetails, actions: AppActions) {
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                 keyboardActions = nextKeyboardActions(focusManager),
-                modifier = Modifier.fillMaxWidth()
+                minLines = 4,
+                maxLines = 8,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .bringIntoViewRequester(descriptionBringIntoViewRequester)
+                    .onFocusChanged { focusState ->
+                        if (focusState.isFocused) {
+                            coroutineScope.launch {
+                                delay(250)
+                                descriptionBringIntoViewRequester.bringIntoView()
+                            }
+                        }
+                    }
+                    .testTag("correction-description")
             )
         }
         item {

@@ -9,9 +9,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
@@ -26,9 +30,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.LocalContext
@@ -43,8 +49,11 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 internal fun DraftListScreen(
@@ -136,7 +145,11 @@ internal fun ServerSubmissionEditorScreen(
         releaseYear.toIntOrNull(), minimumPlayers.toIntOrNull(), maximumPlayers.toIntOrNull(), minimumAge.toIntOrNull(),
         minimumTime.toIntOrNull(), maximumTime.toIntOrNull(), normalizedBarcodes, languageIds, tagIds,
     )
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxSize()) {
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(bottom = 32.dp),
+        modifier = Modifier.fillMaxSize().imePadding(),
+    ) {
         item {
             DraftHeader("Edit server draft", onBack)
             Text("${game.moderationStatus} · Revision ${game.revision}")
@@ -147,7 +160,12 @@ internal fun ServerSubmissionEditorScreen(
                 DraftTextField(title, { title = it.take(200) }, "Title")
                 DraftTextField(publisher, { publisher = it.take(200) }, "Publisher")
                 DraftTextField(barcodes, { barcodes = it.take(80) }, "Barcodes (comma separated)")
-                NextAwareTextArea(description, { description = it.take(4000) }, "Description")
+                NextAwareTextArea(
+                    description,
+                    { description = it.take(4000) },
+                    "Description",
+                    testTag = "server-description",
+                )
             }
         }
         item {
@@ -197,7 +215,11 @@ internal fun DraftEditorScreen(
         languageIds, tagIds,
     )
 
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxSize()) {
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(bottom = 32.dp),
+        modifier = Modifier.fillMaxSize().imePadding(),
+    ) {
         item {
             DraftHeader("New game · ${step + 1}/3", onBack)
             draft.source?.let { Text("Suggested by $it — verify every field before submitting.", color = MaterialTheme.colorScheme.primary) }
@@ -210,7 +232,13 @@ internal fun DraftEditorScreen(
                     DraftTextField(title, { title = it.take(200) }, "Title")
                     DraftTextField(publisher, { publisher = it.take(200) }, "Publisher")
                     DraftTextField(barcode, { barcode = it.filter(Char::isDigit).take(14) }, "Barcode (8–14 digits)")
-                    NextAwareTextArea(description, { description = it.take(4000) }, "Description", ImeAction.Done)
+                    NextAwareTextArea(
+                        description,
+                        { description = it.take(4000) },
+                        "Description",
+                        ImeAction.Done,
+                        "draft-description",
+                    )
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         TextButton(onClick = { onSave(form, 0) }) { Text("Save") }
                         Button(onClick = { onSave(form, 1); step = 1 }, enabled = title.isNotBlank()) { Text("Next") }
@@ -341,10 +369,32 @@ private fun NextAwareTextArea(
     update: (String) -> Unit,
     label: String,
     imeAction: ImeAction = ImeAction.Next,
+    testTag: String,
 ) {
     val focusManager = LocalFocusManager.current
-    OutlinedTextField(value, { update(it.capitalizeDraftText()) }, label = { Text(label) }, modifier = Modifier.fillMaxWidth(), minLines = 3,
-        keyboardOptions = KeyboardOptions(imeAction = imeAction), keyboardActions = keyboardActions(focusManager))
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    val coroutineScope = rememberCoroutineScope()
+    OutlinedTextField(
+        value,
+        { update(it.capitalizeDraftText()) },
+        label = { Text(label) },
+        modifier = Modifier
+            .fillMaxWidth()
+            .bringIntoViewRequester(bringIntoViewRequester)
+            .onFocusChanged { focusState ->
+                if (focusState.isFocused) {
+                    coroutineScope.launch {
+                        delay(250)
+                        bringIntoViewRequester.bringIntoView()
+                    }
+                }
+            }
+            .testTag(testTag),
+        minLines = 4,
+        maxLines = 8,
+        keyboardOptions = KeyboardOptions(imeAction = imeAction),
+        keyboardActions = keyboardActions(focusManager),
+    )
 }
 
 private fun String.capitalizeDraftText(): String {
