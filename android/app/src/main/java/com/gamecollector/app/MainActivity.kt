@@ -14,6 +14,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -36,6 +37,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -47,6 +49,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -60,6 +63,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -67,6 +71,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import android.app.Activity
 import android.os.SystemClock
 import android.widget.Toast
@@ -111,7 +116,21 @@ class MainActivity : ComponentActivity() {
         setContent {
             val state by viewModel.state.collectAsStateWithLifecycle()
             val context = LocalContext.current
+            val systemInDarkTheme = isSystemInDarkTheme()
+            val darkTheme = when (state.themeMode) {
+                ThemeMode.Automatic -> systemInDarkTheme
+                ThemeMode.Light -> false
+                ThemeMode.Dark -> true
+            }
+            val view = LocalView.current
             var lastBackPress by remember { mutableStateOf(0L) }
+
+            SideEffect {
+                WindowCompat.getInsetsController(window, view).apply {
+                    isAppearanceLightStatusBars = !darkTheme
+                    isAppearanceLightNavigationBars = !darkTheme
+                }
+            }
 
             BackHandler {
                 if (viewModel.navigateBack()) {
@@ -131,7 +150,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-            GameCollectorTheme {
+            GameCollectorTheme(darkTheme = darkTheme) {
                 GameCollectorApp(
                     state = state,
                     actions = AppActions(
@@ -195,6 +214,7 @@ class MainActivity : ComponentActivity() {
                         retrySync = viewModel::retrySync,
                         rebuildSync = viewModel::rebuildSyncState,
                         clearCache = viewModel::clearCache,
+                        setThemeMode = viewModel::setThemeMode,
                         revokeDevice = viewModel::revokeDevice,
                         signOut = viewModel::signOut,
                     ),
@@ -277,6 +297,7 @@ private data class AppActions(
     val retrySync: () -> Unit,
     val rebuildSync: () -> Unit,
     val clearCache: () -> Unit,
+    val setThemeMode: (ThemeMode) -> Unit,
     val revokeDevice: () -> Unit,
     val signOut: () -> Unit,
 )
@@ -1844,6 +1865,30 @@ private fun SettingsScreen(state: MainUiState, actions: AppActions) {
         modifier = Modifier.fillMaxSize()
     ) {
         item { Header("Settings", actions.home) }
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Appearance", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Choose a theme, or follow your phone automatically.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        ThemeMode.entries.forEach { themeMode ->
+                            FilterChip(
+                                selected = state.themeMode == themeMode,
+                                onClick = { actions.setThemeMode(themeMode) },
+                                label = { Text(themeMode.name) },
+                                modifier = Modifier.testTag("theme-${themeMode.name.lowercase()}"),
+                            )
+                        }
+                    }
+                }
+            }
+        }
         item {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {

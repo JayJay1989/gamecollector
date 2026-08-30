@@ -21,6 +21,7 @@ camerax = "1.6.1"
 mlkit-barcode = "17.3.0"
 firebase-bom = "34.16.0"
 google-services = "4.5.0"
+datastore = "1.2.1"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "core" }
@@ -58,6 +59,7 @@ androidx-camera-view = { module = "androidx.camera:camera-view", version.ref = "
 mlkit-barcode-scanning = { module = "com.google.mlkit:barcode-scanning", version.ref = "mlkit-barcode" }
 firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebase-bom" }
 firebase-messaging = { module = "com.google.firebase:firebase-messaging" }
+androidx-datastore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "datastore" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

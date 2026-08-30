@@ -63,6 +63,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val database = GameCollectorDatabase.get(application)
     private val repository = GameCollectorRepository(database, api)
     private val draftRepository = GameDraftRepository(database)
+    private val appPreferences = AppPreferences(application)
     private val deviceId = InstallationIdStore(application).id
     private var pendingDeepLink: DeepLinkTarget? = null
     private val mutableState = MutableStateFlow(
@@ -72,10 +73,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         observeLocalState()
+        observePreferences()
         if (session.isAuthorized) {
             SyncScheduler.ensurePeriodic(application)
             refreshSession()
         }
+    }
+
+    private fun observePreferences() {
+        viewModelScope.launch {
+            appPreferences.themeMode.collect { themeMode ->
+                mutableState.update { it.copy(themeMode = themeMode) }
+            }
+        }
+    }
+
+    fun setThemeMode(themeMode: ThemeMode) {
+        viewModelScope.launch { appPreferences.setThemeMode(themeMode) }
     }
 
     private fun observeLocalState() {
@@ -1342,6 +1356,7 @@ private fun validPositiveRange(minimum: Int?, maximum: Int?): Boolean =
 
 data class MainUiState(
     val page: AppPage,
+    val themeMode: ThemeMode = ThemeMode.Automatic,
     val profile: UserProfile? = null,
     val collections: List<CollectionSummary> = emptyList(),
     val selectedCollectionId: String? = null,
