@@ -70,8 +70,8 @@ class DraftUploadWorker(context: Context, params: WorkerParameters) : CoroutineW
             }
 
             val uploads = dao.getUploads(draft.id)
-            if (uploads.none { it.kind == "Front" && it.state == "Ready" } || uploads.none { it.kind == "Back" && it.state == "Ready" }) {
-                return retryDraft(dao, draft, "Front and back images are still required.")
+            if (uploads.none { it.kind == "Front" && it.state == "Ready" }) {
+                return retryDraft(dao, draft, "A front image is still required.")
             }
             return when (val submitted = api.submitGame(deviceId, draft.serverGameId!!)) {
                 is ApiResult.Success -> {

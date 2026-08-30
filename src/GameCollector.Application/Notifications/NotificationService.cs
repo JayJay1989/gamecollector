@@ -58,6 +58,19 @@ public sealed class NotificationService(
         return Result.Success(true);
     }
 
+    public async Task<Result<bool>> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var profile = await GetProfileAsync(cancellationToken);
+        if (profile is null) return Result.Failure<bool>(ApplicationErrors.ProfileNotFound);
+        var item = await notifications.GetForUserAsync(id, profile.Id, cancellationToken);
+        if (item is null) return Result.Failure<bool>(ApplicationErrors.NotificationNotFound);
+        notifications.Remove(item);
+        await syncEvents.WriteAsync("user", profile.Id, "notificationChanged", id,
+            new { Id = id, IsDeleted = true }, cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        return Result.Success(true);
+    }
+
     public async Task<Notification> CreateAsync(Guid userId, string type, object payload, CancellationToken cancellationToken = default)
     {
         var now = Now();

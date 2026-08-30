@@ -27,7 +27,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         LocalGameDraft::class,
         SyncScopeState::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class GameCollectorDatabase : RoomDatabase() {
@@ -48,7 +48,7 @@ abstract class GameCollectorDatabase : RoomDatabase() {
                 context.applicationContext,
                 GameCollectorDatabase::class.java,
                 "game-collector.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6).build().also { instance = it }
         }
 
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -88,6 +88,12 @@ abstract class GameCollectorDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_game_change_requests_gameId ON game_change_requests(gameId)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_game_change_requests_status ON game_change_requests(status)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_game_change_requests_updatedAtUtc ON game_change_requests(updatedAtUtc)")
+            }
+        }
+
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE collections ADD COLUMN isPublic INTEGER NOT NULL DEFAULT 0")
             }
         }
     }

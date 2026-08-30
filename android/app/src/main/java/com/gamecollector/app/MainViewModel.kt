@@ -28,6 +28,10 @@ import com.gamecollector.core.network.GameSummary
 import com.gamecollector.core.network.GameSubmission
 import com.gamecollector.core.network.GameChangePatch
 import com.gamecollector.core.network.GameChangeRequest
+import com.gamecollector.core.network.FriendProfile
+import com.gamecollector.core.network.FriendRequestItem
+import com.gamecollector.core.network.FriendSummary
+import com.gamecollector.core.network.OwnedGame
 import com.gamecollector.core.network.ReferenceData
 import com.gamecollector.core.network.UserProfile
 import com.gamecollector.core.network.UserSearchResult
@@ -225,6 +229,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             AppPage.AdminCorrection ->
                 AppPage.Admin
 
+            AppPage.FriendProfile -> AppPage.Friends
+
             AppPage.Profile,
             AppPage.Settings,
             AppPage.Collection,
@@ -232,7 +238,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             AppPage.Notifications,
             AppPage.Corrections,
             AppPage.Drafts,
-            AppPage.Admin ->
+            AppPage.Admin,
+            AppPage.Friends ->
                 AppPage.Home
 
             AppPage.Home,
@@ -398,10 +405,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun renameCollection(name: String) {
+    fun updateCollection(name: String, isPublic: Boolean) {
         val collection = state.value.selectedCollection ?: return
         launchAction {
-            when (val result = api.renameCollection(deviceId, collection.id, name)) {
+            when (val result = api.updateCollection(deviceId, collection.id, name, isPublic)) {
                 is ApiResult.Success -> reloadWorkspace(collection.id, "Collection renamed.")
                 else -> fail(result)
             }
@@ -451,6 +458,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 payload.optString("collectionId").takeIf(String::isNotBlank)?.let(DeepLinkTarget::Collection)
             "GameSubmissionApproved", "GameSubmissionNeedsChanges", "GameSubmissionRejected",
             "SuggestedEditApproved", "SuggestedEditRejected" -> payload.optString("gameId").takeIf(String::isNotBlank)?.let(DeepLinkTarget::Game)
+            "FriendRequest", "FriendRequestAccepted", "FriendRequestDeclined" -> { showFriends(); null }
             else -> null
         }
         if (target != null) applyDeepLink(target)
@@ -460,6 +468,81 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         repository.markAllNotificationsReadLocally()
         NotificationReadScheduler.enqueue(app, NotificationReadWorker.ALL)
         showMessage("All notifications marked as read.")
+    }
+
+    fun deleteNotification(id: String) = launchAction {
+        when (val result = api.deleteNotification(deviceId, id)) {
+            is ApiResult.Success -> {
+                repository.deleteNotificationLocally(id)
+                mutableState.update { it.copy(working = false, message = "Notification deleted.") }
+            }
+            else -> fail(result)
+        }
+    }
+
+    fun showFriends() = launchAction {
+        val friends = api.listFriends(deviceId)
+        val requests = api.listFriendRequests(deviceId)
+        if (friends is ApiResult.Success && requests is ApiResult.Success) {
+            mutableState.update { it.copy(page = AppPage.Friends, friends = friends.value,
+                friendRequests = requests.value, friendSearchResults = emptyList(), working = false, message = null) }
+        } else fail(if (friends !is ApiResult.Success) friends else requests)
+    }
+
+    fun searchFriends(query: String) {
+        if (query.trim().removePrefix("#").length < 2) return showMessage("Enter at least two username characters.")
+        launchAction {
+            when (val result = api.searchUsers(deviceId, query)) {
+                is ApiResult.Success -> mutableState.update { it.copy(friendSearchResults = result.value, working = false) }
+                else -> fail(result)
+            }
+        }
+    }
+
+    fun sendFriendRequest(userId: String) = launchAction {
+        when (val result = api.sendFriendRequest(deviceId, userId)) {
+            is ApiResult.Success -> mutableState.update { it.copy(friendSearchResults = emptyList(), working = false, message = "Friend request sent.") }
+            else -> fail(result)
+        }
+    }
+
+    fun respondToFriendRequest(id: String, accept: Boolean) = launchAction {
+        when (val result = api.respondToFriendRequest(deviceId, id, accept)) {
+            is ApiResult.Success -> {
+                val friends = api.listFriends(deviceId); val requests = api.listFriendRequests(deviceId)
+                mutableState.update { it.copy(friends = (friends as? ApiResult.Success)?.value ?: it.friends,
+                    friendRequests = (requests as? ApiResult.Success)?.value ?: it.friendRequests.filterNot { request -> request.id == id },
+                    working = false, message = if (accept) "Friend added." else "Friend request declined.") }
+            }
+            else -> fail(result)
+        }
+    }
+
+    fun openFriend(userId: String) = launchAction {
+        when (val result = api.getFriendProfile(deviceId, userId)) {
+            is ApiResult.Success -> mutableState.update { it.copy(page = AppPage.FriendProfile,
+                selectedFriendProfile = result.value, friendCollectionGames = emptyList(), working = false, message = null) }
+            else -> fail(result)
+        }
+    }
+
+    fun openFriendCollection(collectionId: String) {
+        val friend = state.value.selectedFriendProfile ?: return
+        launchAction {
+            when (val result = api.listFriendCollectionGames(deviceId, friend.userId, collectionId)) {
+                is ApiResult.Success -> mutableState.update { it.copy(friendCollectionGames = result.value, working = false) }
+                else -> fail(result)
+            }
+        }
+    }
+
+    fun removeFriend(userId: String) = launchAction {
+        when (val result = api.removeFriend(deviceId, userId)) {
+            is ApiResult.Success -> mutableState.update { it.copy(page = AppPage.Friends,
+                friends = it.friends.filterNot { friend -> friend.userId == userId }, selectedFriendProfile = null,
+                friendCollectionGames = emptyList(), working = false, message = "Friend removed.") }
+            else -> fail(result)
+        }
     }
 
     fun showCorrections() = launchAction {
@@ -739,7 +822,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val draft = state.value.selectedDraft ?: return@launchAction showMessage("The draft is no longer available.")
         validateDraftForm(form)?.let { return@launchAction showMessage(it) }
         val kinds = state.value.draftUploads.map { it.kind }.toSet()
-        if ("Front" !in kinds || "Back" !in kinds) return@launchAction showMessage("Add both front and back images first.")
+        if ("Front" !in kinds) return@launchAction showMessage("Add a front image first. The back image is optional.")
         draftRepository.save(draft.withForm(form, 2))
         draftRepository.requestSubmission(draft.id)
         DraftUploadWorker.enqueue(app, draft.id)
@@ -942,7 +1025,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             is ApiResult.Success -> {
                 val selected = profile.defaultCollectionId?.takeIf { id -> result.value.any { it.id == id } }
                     ?: result.value.firstOrNull()?.id
-                val (owned, wishlist) = libraryIds(selected)
+                val (owned, wishlist) = libraryIds(selected, refresh = refresh && !offline)
                 mutableState.value = MainUiState(
                     page = if (selected == null) AppPage.Home else AppPage.Library,
                     profile = profile,
@@ -1169,7 +1252,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun Throwable.safeMessage() = message?.take(200) ?: "Authentication failed."
 }
 
-enum class AppPage { SignIn, Loading, Onboarding, Home, Library, Profile, Settings, Collection, Invitations, Notifications, Corrections, CorrectionEditor, Catalog, Game, Scanner, Drafts, DraftEditor, ServerSubmissionEditor, Admin, AdminSubmission, AdminCorrection }
+enum class AppPage { SignIn, Loading, Onboarding, Home, Library, Profile, Settings, Collection, Invitations, Notifications, Corrections, CorrectionEditor, Catalog, Game, Scanner, Drafts, DraftEditor, ServerSubmissionEditor, Admin, AdminSubmission, AdminCorrection, Friends, FriendProfile }
 
 data class CorrectionForm(
     val title: String, val description: String?, val publisher: String?, val releaseYear: Int?,
@@ -1293,6 +1376,11 @@ data class MainUiState(
     val adminChangeRequests: List<GameChangeRequest> = emptyList(),
     val selectedAdminChangeRequest: GameChangeRequest? = null,
     val selectedCorrectionImages: Map<String, ByteArray> = emptyMap(),
+    val friends: List<FriendSummary> = emptyList(),
+    val friendRequests: List<FriendRequestItem> = emptyList(),
+    val friendSearchResults: List<UserSearchResult> = emptyList(),
+    val selectedFriendProfile: FriendProfile? = null,
+    val friendCollectionGames: List<OwnedGame> = emptyList(),
     val serverSubmissions: List<GameSubmission> = emptyList(),
     val selectedServerSubmission: GameSubmission? = null,
     val working: Boolean = false,

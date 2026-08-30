@@ -124,7 +124,7 @@ public sealed class ModerationService(
         var access = await GetOwnedSubmissionAsync(id, cancellationToken);
         if (access.Error is not null) return Result.Failure<GameSubmissionDto>(access.Error);
         if (access.Game!.ModerationStatus is not (ModerationStatus.Draft or ModerationStatus.NeedsChanges)) return Result.Failure<GameSubmissionDto>(ApplicationErrors.SubmissionNotEditable);
-        if (!await images.HasReadyFrontAndBackAsync(id, cancellationToken)) return Result.Failure<GameSubmissionDto>(ApplicationErrors.RequiredImagesMissing);
+        if (!await images.HasReadyFrontAsync(id, cancellationToken)) return Result.Failure<GameSubmissionDto>(ApplicationErrors.RequiredImagesMissing);
         try { access.Game.Submit(Now()); await AddSyncEventAsync("user", access.Game.SubmittedByUserId!.Value, "submissionChanged", access.Game.Id, new { access.Game.Id, access.Game.Revision, ModerationStatus = access.Game.ModerationStatus.ToString() }, cancellationToken); await unitOfWork.SaveChangesAsync(cancellationToken); return Result.Success(MapSubmission(access.Game)); }
         catch (PersistenceConcurrencyException) { return Result.Failure<GameSubmissionDto>(ApplicationErrors.RevisionConflict); }
     }

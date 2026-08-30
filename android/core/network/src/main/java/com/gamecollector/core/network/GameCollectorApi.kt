@@ -70,11 +70,11 @@ class GameCollectorApi(
         parser = ::collection,
     )
 
-    suspend fun renameCollection(deviceId: String, collectionId: String, name: String) = request(
+    suspend fun updateCollection(deviceId: String, collectionId: String, name: String, isPublic: Boolean) = request(
         "api/v1/collections/$collectionId",
         method = "PATCH",
         deviceId = deviceId,
-        body = jsonOf("name" to name.trim()),
+        body = jsonOf("name" to name.trim(), "isPublic" to isPublic),
         parser = ::collection,
     )
 
@@ -227,6 +227,42 @@ class GameCollectorApi(
         "api/v1/change-requests/mine",
         deviceId = deviceId,
         parser = { value -> value.arrayObjects().map(::changeRequest) },
+    )
+
+    suspend fun deleteNotification(deviceId: String, notificationId: String) = request(
+        "api/v1/me/notifications/$notificationId", method = "DELETE", deviceId = deviceId,
+        expected = setOf(204), parser = { Unit },
+    )
+
+    suspend fun listFriends(deviceId: String) = request(
+        "api/v1/friends", deviceId = deviceId, parser = { value -> value.arrayObjects().map(::friend) },
+    )
+
+    suspend fun listFriendRequests(deviceId: String) = request(
+        "api/v1/friends/requests", deviceId = deviceId, parser = { value -> value.arrayObjects().map(::friendRequest) },
+    )
+
+    suspend fun sendFriendRequest(deviceId: String, userId: String) = request(
+        "api/v1/friends/requests", method = "POST", deviceId = deviceId,
+        body = jsonOf("userId" to userId), expected = setOf(201), parser = ::friendRequest,
+    )
+
+    suspend fun respondToFriendRequest(deviceId: String, requestId: String, accept: Boolean) = request(
+        "api/v1/friends/requests/$requestId/${if (accept) "accept" else "decline"}",
+        method = "POST", deviceId = deviceId, expected = setOf(204), parser = { Unit },
+    )
+
+    suspend fun removeFriend(deviceId: String, userId: String) = request(
+        "api/v1/friends/$userId", method = "DELETE", deviceId = deviceId, expected = setOf(204), parser = { Unit },
+    )
+
+    suspend fun getFriendProfile(deviceId: String, userId: String) = request(
+        "api/v1/friends/$userId", deviceId = deviceId, parser = ::friendProfile,
+    )
+
+    suspend fun listFriendCollectionGames(deviceId: String, userId: String, collectionId: String) = request(
+        "api/v1/friends/$userId/collections/$collectionId/games", deviceId = deviceId,
+        parser = { value -> value.arrayObjects().map(::ownedGame) },
     )
 
     suspend fun uploadChangeRequestImage(
@@ -724,7 +760,27 @@ class GameCollectorApi(
             name = json.getString("name"),
             ownerUserId = json.getString("ownerUserId"),
             myRole = CollectionRole.fromApi(json.get("myRole")),
+            isPublic = json.optBoolean("isPublic"),
         )
+    }
+
+    private fun friend(value: String): FriendSummary {
+        val json = JSONObject(value)
+        return FriendSummary(json.getString("userId"), json.getString("displayName"), json.getString("username"), json.getString("friendsSinceUtc"))
+    }
+
+    private fun friendRequest(value: String): FriendRequestItem {
+        val json = JSONObject(value)
+        return FriendRequestItem(json.getString("id"), json.getString("userId"), json.getString("displayName"),
+            json.getString("username"), json.getBoolean("incoming"), json.getString("status"), json.getString("createdAtUtc"))
+    }
+
+    private fun friendProfile(value: String): FriendProfile {
+        val json = JSONObject(value)
+        return FriendProfile(json.getString("userId"), json.getString("displayName"), json.getString("username"),
+            json.getJSONArray("publicCollections").objects().map { raw ->
+                val item = JSONObject(raw); FriendCollection(item.getString("id"), item.getString("name"), item.getInt("gameCount"))
+            }, json.getJSONArray("wishlist").objects().map(::wishlistGame))
     }
 
     private fun member(value: String): CollectionMember {
@@ -983,6 +1039,7 @@ data class CollectionSummary(
     val name: String,
     val ownerUserId: String,
     val myRole: CollectionRole,
+    val isPublic: Boolean = false,
 )
 
 data class CollectionMember(
@@ -1003,6 +1060,10 @@ data class CollectionInvitation(
 )
 
 data class UserSearchResult(val id: String, val displayName: String, val username: String)
+data class FriendSummary(val userId: String, val displayName: String, val username: String, val friendsSinceUtc: String)
+data class FriendRequestItem(val id: String, val userId: String, val displayName: String, val username: String, val incoming: Boolean, val status: String, val createdAtUtc: String)
+data class FriendCollection(val id: String, val name: String, val gameCount: Int)
+data class FriendProfile(val userId: String, val displayName: String, val username: String, val publicCollections: List<FriendCollection>, val wishlist: List<WishlistGame>)
 data class NotificationItem(val id: String, val type: String, val payloadJson: String, val createdAtUtc: String, val readAtUtc: String?)
 data class GameChangePatch(
     val title: String? = null, val description: String? = null, val publisher: String? = null,

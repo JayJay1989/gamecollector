@@ -281,7 +281,7 @@ private fun PhotoStep(
             TextButton(onClick = previous, enabled = draft.status != "Submitted") { Text("Previous") }
             Button(
                 onClick = { onSubmit(form) },
-                enabled = draft.status != "Submitted" && uploads.any { it.kind == "Front" } && uploads.any { it.kind == "Back" },
+                enabled = draft.status != "Submitted" && uploads.any { it.kind == "Front" },
             ) { Text(if (draft.status == "Failed") "Retry submission" else "Submit for review") }
         }
     }
@@ -313,7 +313,17 @@ private fun NumberPair(label: String, minimum: String, setMinimum: (String) -> U
 
 @Composable
 private fun DraftTextField(value: String, update: (String) -> Unit, label: String) =
-    OutlinedTextField(value, update, label = { Text(label) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+    OutlinedTextField(value, { update(it.capitalizeDraftText()) }, label = { Text(label) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+
+private fun String.capitalizeDraftText(): String {
+    val index = indexOfFirst(Char::isLetter)
+    if (index < 0 || !this[index].isLowerCase()) return this
+    return replaceRange(index, index + 1, this[index].uppercase())
+}
+
+@Composable
+private fun DraftNumberField(value: String, update: (String) -> Unit, label: String) =
+    OutlinedTextField(value, update, label = { Text(label) }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
 
 @Composable
 private fun DraftNumberField(value: String, update: (String) -> Unit, label: String) =

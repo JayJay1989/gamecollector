@@ -14,6 +14,10 @@ public sealed class CollectionRepository(ApplicationDbContext dbContext) : IColl
             .Where(collection => collection.OwnerUserId == userId || collection.Members.Any(member => member.UserId == userId))
             .OrderBy(collection => collection.Name).ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<Collection>> GetPublicForOwnerAsync(Guid ownerUserId, CancellationToken cancellationToken = default) =>
+        await dbContext.Collections.AsNoTracking().Where(item => item.OwnerUserId == ownerUserId && item.IsPublic)
+            .OrderBy(item => item.Name).ToListAsync(cancellationToken);
+
     public async Task<IReadOnlyList<Collection>> SearchForAdministrationAsync(string? query, int limit, CancellationToken cancellationToken = default)
     {
         var source = dbContext.Collections.Include(collection => collection.Members).AsQueryable();

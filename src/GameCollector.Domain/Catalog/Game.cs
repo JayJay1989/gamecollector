@@ -181,8 +181,15 @@ public sealed class Game
         if (minimum is < 1 || maximum is < 1 || (minimum.HasValue && maximum.HasValue && minimum > maximum))
             throw new DomainValidationException($"The {name} range is invalid.");
     }
-    private static string Required(string value, int max, string name) { var trimmed = value.Trim(); if (trimmed.Length is < 1 || trimmed.Length > max) throw new DomainValidationException($"{name} is invalid."); return trimmed; }
-    private static string? Optional(string? value, int max) { if (string.IsNullOrWhiteSpace(value)) return null; var trimmed = value.Trim(); if (trimmed.Length > max) throw new DomainValidationException("A game field is too long."); return trimmed; }
+    private static string Required(string value, int max, string name) { var trimmed = CapitalizeFirstLetter(value.Trim()); if (trimmed.Length is < 1 || trimmed.Length > max) throw new DomainValidationException($"{name} is invalid."); return trimmed; }
+    private static string? Optional(string? value, int max) { if (string.IsNullOrWhiteSpace(value)) return null; var trimmed = CapitalizeFirstLetter(value.Trim()); if (trimmed.Length > max) throw new DomainValidationException("A game field is too long."); return trimmed; }
+    private static string CapitalizeFirstLetter(string value)
+    {
+        var characters = value.ToCharArray();
+        for (var index = 0; index < characters.Length; index++)
+            if (char.IsLetter(characters[index])) { characters[index] = char.ToUpperInvariant(characters[index]); break; }
+        return new string(characters);
+    }
     private void EnsurePending(Guid administratorId)
     {
         if (administratorId == Guid.Empty) throw new DomainValidationException("An administrator ID is required.");

@@ -19,6 +19,7 @@ data class LocalCollection(
     val name: String,
     val ownerUserId: String,
     val myRole: Int,
+    val isPublic: Boolean = false,
 )
 
 @Entity(
