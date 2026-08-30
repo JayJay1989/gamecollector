@@ -350,10 +350,10 @@ private fun NumberPair(
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedTextField(minimum, { setMinimum(it.filter(Char::isDigit).take(4)) }, label = { Text("Minimum") }, singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
-            keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Next) }), modifier = Modifier.weight(1f))
+            keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Next) }), modifier = Modifier.weight(1f).keepVisibleAboveDraftKeyboard())
         OutlinedTextField(maximum, { setMaximum(it.filter(Char::isDigit).take(4)) }, label = { Text("Maximum") }, singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = finalImeAction),
-            keyboardActions = keyboardActions(focusManager), modifier = Modifier.weight(1f))
+            keyboardActions = keyboardActions(focusManager), modifier = Modifier.weight(1f).keepVisibleAboveDraftKeyboard())
     }
 }
 
@@ -362,7 +362,7 @@ private fun DraftTextField(value: String, update: (String) -> Unit, label: Strin
     val focusManager = LocalFocusManager.current
     OutlinedTextField(value, { update(it.capitalizeDraftText()) }, label = { Text(label) }, singleLine = true,
         keyboardOptions = KeyboardOptions(imeAction = imeAction), keyboardActions = keyboardActions(focusManager),
-        modifier = Modifier.fillMaxWidth())
+        modifier = Modifier.fillMaxWidth().keepVisibleAboveDraftKeyboard())
 }
 
 @Composable
@@ -410,7 +410,21 @@ private fun DraftNumberField(value: String, update: (String) -> Unit, label: Str
     val focusManager = LocalFocusManager.current
     OutlinedTextField(value, update, label = { Text(label) }, singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = imeAction),
-        keyboardActions = keyboardActions(focusManager), modifier = Modifier.fillMaxWidth())
+        keyboardActions = keyboardActions(focusManager), modifier = Modifier.fillMaxWidth().keepVisibleAboveDraftKeyboard())
+}
+
+@Composable
+private fun Modifier.keepVisibleAboveDraftKeyboard(): Modifier {
+    val requester = remember { BringIntoViewRequester() }
+    val coroutineScope = rememberCoroutineScope()
+    return bringIntoViewRequester(requester).onFocusChanged { focusState ->
+        if (focusState.isFocused) {
+            coroutineScope.launch {
+                delay(300)
+                requester.bringIntoView()
+            }
+        }
+    }
 }
 
 private fun keyboardActions(focusManager: androidx.compose.ui.focus.FocusManager) = KeyboardActions(

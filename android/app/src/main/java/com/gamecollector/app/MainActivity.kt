@@ -1659,8 +1659,6 @@ private fun CorrectionEditorScreen(game: GameDetails, actions: AppActions) {
     var frontImageUri by rememberSaveable(game.id) { mutableStateOf<String?>(null) }
     var backImageUri by rememberSaveable(game.id) { mutableStateOf<String?>(null) }
     val focusManager = LocalFocusManager.current
-    val descriptionBringIntoViewRequester = remember { BringIntoViewRequester() }
-    val coroutineScope = rememberCoroutineScope()
     val frontPicker =
         rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
             frontImageUri = uri?.toString()
@@ -1671,7 +1669,10 @@ private fun CorrectionEditorScreen(game: GameDetails, actions: AppActions) {
         }
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(10.dp),
-        modifier = Modifier.fillMaxSize()
+        contentPadding = PaddingValues(bottom = 48.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .imePadding()
     ) {
         item {
             Header(
@@ -1686,20 +1687,7 @@ private fun CorrectionEditorScreen(game: GameDetails, actions: AppActions) {
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                 keyboardActions = nextKeyboardActions(focusManager),
-                minLines = 4,
-                maxLines = 8,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .bringIntoViewRequester(descriptionBringIntoViewRequester)
-                    .onFocusChanged { focusState ->
-                        if (focusState.isFocused) {
-                            coroutineScope.launch {
-                                delay(250)
-                                descriptionBringIntoViewRequester.bringIntoView()
-                            }
-                        }
-                    }
-                    .testTag("correction-description")
+                modifier = Modifier.fillMaxWidth().keepVisibleAboveKeyboard(),
             )
         }
         item {
@@ -1709,7 +1697,12 @@ private fun CorrectionEditorScreen(game: GameDetails, actions: AppActions) {
                 label = { Text("Description") },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                 keyboardActions = nextKeyboardActions(focusManager),
-                modifier = Modifier.fillMaxWidth()
+                minLines = 4,
+                maxLines = 8,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .keepVisibleAboveKeyboard()
+                    .testTag("correction-description")
             )
         }
         item {
@@ -1720,7 +1713,7 @@ private fun CorrectionEditorScreen(game: GameDetails, actions: AppActions) {
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                 keyboardActions = nextKeyboardActions(focusManager),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().keepVisibleAboveKeyboard(),
             )
         }
         item {
@@ -1795,8 +1788,23 @@ private fun NumberField(
         ),
         modifier = Modifier
             .fillMaxWidth()
+            .keepVisibleAboveKeyboard()
             .padding(bottom = 8.dp)
     )
+}
+
+@Composable
+private fun Modifier.keepVisibleAboveKeyboard(): Modifier {
+    val requester = remember { BringIntoViewRequester() }
+    val coroutineScope = rememberCoroutineScope()
+    return bringIntoViewRequester(requester).onFocusChanged { focusState ->
+        if (focusState.isFocused) {
+            coroutineScope.launch {
+                delay(300)
+                requester.bringIntoView()
+            }
+        }
+    }
 }
 
 private fun nextKeyboardActions(focusManager: androidx.compose.ui.focus.FocusManager) = KeyboardActions(
