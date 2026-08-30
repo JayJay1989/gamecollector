@@ -15,13 +15,15 @@ enum class ThemeMode {
     Dark,
 }
 
+internal fun themeModeFromStoredValue(value: String?): ThemeMode =
+    value?.let { stored -> ThemeMode.entries.firstOrNull { it.name == stored } }
+        ?: ThemeMode.Automatic
+
 internal class AppPreferences(private val context: Context) {
     private val themeModeKey = stringPreferencesKey("theme_mode")
 
     val themeMode: Flow<ThemeMode> = context.gameCollectorPreferences.data.map { preferences ->
-        preferences[themeModeKey]
-            ?.let { stored -> ThemeMode.entries.firstOrNull { it.name == stored } }
-            ?: ThemeMode.Automatic
+        themeModeFromStoredValue(preferences[themeModeKey])
     }
 
     suspend fun setThemeMode(themeMode: ThemeMode) {

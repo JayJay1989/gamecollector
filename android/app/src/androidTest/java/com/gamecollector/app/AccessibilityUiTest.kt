@@ -12,7 +12,7 @@ class AccessibilityUiTest {
     @get:Rule val compose = createComposeRule()
 
     @Test fun screenTitleExposesHeadingSemantics() {
-        compose.setContent { GameCollectorTheme { Title("Accessible screen") } }
+        compose.setContent { GameCollectorTheme(darkTheme = false) { Title("Accessible screen") } }
         compose.onNode(hasText("Accessible screen") and isHeading()).assertIsDisplayed()
     }
 }

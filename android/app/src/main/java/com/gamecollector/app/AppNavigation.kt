@@ -43,6 +43,9 @@ private val primaryDestinations = listOf(
     PrimaryDestination(AppPage.Home, "More", R.drawable.ic_more) { it.home() },
 )
 
+internal val primaryDestinationLabels: List<String>
+    get() = primaryDestinations.map { it.label }
+
 @Composable
 internal fun PrimaryNavigation(page: AppPage, actions: AppActions) {
     Surface(
