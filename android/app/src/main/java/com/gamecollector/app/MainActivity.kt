@@ -66,8 +66,12 @@ import android.os.SystemClock
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.material3.TextFieldLabelScope
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gamecollector.core.designsystem.GameCollectorTheme
@@ -398,6 +402,7 @@ private fun OnboardingScreen(onSubmit: (String, String, String) -> Unit) {
     var displayName by rememberSaveable { mutableStateOf("") }
     var username by rememberSaveable { mutableStateOf("") }
     var collectionName by rememberSaveable { mutableStateOf("") }
+    val focusManager = LocalFocusManager.current
     FormScreen("Welcome") {
         Text("Create your profile and first card-game collection.")
         OutlinedTextField(
@@ -405,6 +410,8 @@ private fun OnboardingScreen(onSubmit: (String, String, String) -> Unit) {
             { displayName = it.capitalizeFirstLetter() },
             label = { Text("Display name") },
             singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+            keyboardActions = nextKeyboardActions(focusManager),
             modifier = Modifier.fillMaxWidth()
         )
         OutlinedTextField(
@@ -413,6 +420,8 @@ private fun OnboardingScreen(onSubmit: (String, String, String) -> Unit) {
             label = { Text("Username") },
             prefix = { Text("#") },
             singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+            keyboardActions = nextKeyboardActions(focusManager),
             modifier = Modifier.fillMaxWidth()
         )
         OutlinedTextField(
@@ -420,6 +429,8 @@ private fun OnboardingScreen(onSubmit: (String, String, String) -> Unit) {
             { collectionName = it.capitalizeFirstLetter() },
             label = { Text("First collection") },
             singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
             modifier = Modifier.fillMaxWidth()
         )
         Button(
@@ -1256,12 +1267,15 @@ private fun ScannerEntryScreen(actions: AppActions) {
 private fun ProfileScreen(profile: UserProfile?, actions: AppActions) {
     var displayName by rememberSaveable(profile?.id) { mutableStateOf(profile?.displayName.orEmpty()) }
     var username by rememberSaveable(profile?.id) { mutableStateOf(profile?.username.orEmpty()) }
+    val focusManager = LocalFocusManager.current
     FormScreen("Profile") {
         OutlinedTextField(
             displayName,
             { displayName = it.capitalizeFirstLetter() },
             label = { Text("Display name") },
             singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+            keyboardActions = nextKeyboardActions(focusManager),
             modifier = Modifier.fillMaxWidth()
         )
         OutlinedTextField(
@@ -1270,6 +1284,8 @@ private fun ProfileScreen(profile: UserProfile?, actions: AppActions) {
             label = { Text("Username") },
             prefix = { Text("#") },
             singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
             modifier = Modifier.fillMaxWidth()
         )
         FlowRow(
@@ -1657,6 +1673,7 @@ private fun CorrectionEditorScreen(game: GameDetails, actions: AppActions) {
     }
     var frontImageUri by rememberSaveable(game.id) { mutableStateOf<String?>(null) }
     var backImageUri by rememberSaveable(game.id) { mutableStateOf<String?>(null) }
+    val focusManager = LocalFocusManager.current
     val frontPicker =
         rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
             frontImageUri = uri?.toString()
@@ -1679,6 +1696,9 @@ private fun CorrectionEditorScreen(game: GameDetails, actions: AppActions) {
                 title,
                 { title = it.capitalizeFirstLetter() },
                 label = { Text("Title") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                keyboardActions = nextKeyboardActions(focusManager),
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -1687,6 +1707,8 @@ private fun CorrectionEditorScreen(game: GameDetails, actions: AppActions) {
                 description,
                 { description = it.capitalizeFirstLetter() },
                 label = { Text("Description") },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                keyboardActions = nextKeyboardActions(focusManager),
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -1695,6 +1717,9 @@ private fun CorrectionEditorScreen(game: GameDetails, actions: AppActions) {
                 publisher,
                 { publisher = it.capitalizeFirstLetter() },
                 label = { Text("Publisher") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                keyboardActions = nextKeyboardActions(focusManager),
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -1704,7 +1729,7 @@ private fun CorrectionEditorScreen(game: GameDetails, actions: AppActions) {
             NumberField("Maximum players", maxPlayers) { maxPlayers = it }
             NumberField("Minimum age", minAge) { minAge = it }
             NumberField("Minimum playing time", minTime) { minTime = it }
-            NumberField("Maximum playing time", maxTime) { maxTime = it }
+            NumberField("Maximum playing time", maxTime, ImeAction.Done) { maxTime = it }
         }
         item {
             Text("Replacement images (optional)", style = MaterialTheme.typography.titleMedium)
@@ -1748,20 +1773,35 @@ private fun CorrectionEditorScreen(game: GameDetails, actions: AppActions) {
 }
 
 @Composable
-private fun NumberField(label: String, value: String, onValue: (String) -> Unit) {
+private fun NumberField(
+    label: String,
+    value: String,
+    imeAction: ImeAction = ImeAction.Next,
+    onValue: (String) -> Unit,
+) {
+    val focusManager = LocalFocusManager.current
     OutlinedTextField(
         value,
         { onValue(it.filter(Char::isDigit).take(4)) },
         label = { Text(label) },
         singleLine = true,
         keyboardOptions = KeyboardOptions(
-            keyboardType = KeyboardType.Number
+            keyboardType = KeyboardType.Number,
+            imeAction = imeAction,
+        ),
+        keyboardActions = KeyboardActions(
+            onNext = { focusManager.moveFocus(FocusDirection.Next) },
+            onDone = { focusManager.clearFocus() },
         ),
         modifier = Modifier
             .fillMaxWidth()
             .padding(bottom = 8.dp)
     )
 }
+
+private fun nextKeyboardActions(focusManager: androidx.compose.ui.focus.FocusManager) = KeyboardActions(
+    onNext = { focusManager.moveFocus(FocusDirection.Next) },
+)
 
 private fun String.capitalizeFirstLetter(): String {
     val index = indexOfFirst(Char::isLetter)

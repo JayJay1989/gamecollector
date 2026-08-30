@@ -40,6 +40,10 @@ import com.gamecollector.core.database.PendingMediaUpload
 import com.gamecollector.core.network.ReferenceData
 import com.gamecollector.core.network.GameSubmission
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 
 @Composable
@@ -143,15 +147,15 @@ internal fun ServerSubmissionEditorScreen(
                 DraftTextField(title, { title = it.take(200) }, "Title")
                 DraftTextField(publisher, { publisher = it.take(200) }, "Publisher")
                 DraftTextField(barcodes, { barcodes = it.take(80) }, "Barcodes (comma separated)")
-                OutlinedTextField(description, { description = it.take(4000) }, label = { Text("Description") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
+                NextAwareTextArea(description, { description = it.take(4000) }, "Description")
             }
         }
         item {
             DraftSection("Gameplay") {
                 DraftNumberField(releaseYear, { releaseYear = it.filter(Char::isDigit).take(4) }, "Release year")
                 NumberPair("Players", minimumPlayers, { minimumPlayers = it }, maximumPlayers, { maximumPlayers = it })
-                DraftTextField(minimumAge, { minimumAge = it.filter(Char::isDigit).take(3) }, "Minimum age")
-                NumberPair("Playing time (minutes)", minimumTime, { minimumTime = it }, maximumTime, { maximumTime = it })
+                DraftNumberField(minimumAge, { minimumAge = it.filter(Char::isDigit).take(3) }, "Minimum age")
+                NumberPair("Playing time (minutes)", minimumTime, { minimumTime = it }, maximumTime, { maximumTime = it }, ImeAction.Done)
             }
         }
         if (languages.isNotEmpty()) item { SelectionSection("Languages", languages, languageIds) { languageIds = it } }
@@ -206,7 +210,7 @@ internal fun DraftEditorScreen(
                     DraftTextField(title, { title = it.take(200) }, "Title")
                     DraftTextField(publisher, { publisher = it.take(200) }, "Publisher")
                     DraftTextField(barcode, { barcode = it.filter(Char::isDigit).take(14) }, "Barcode (8–14 digits)")
-                    OutlinedTextField(description, { description = it.take(4000) }, label = { Text("Description") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
+                    NextAwareTextArea(description, { description = it.take(4000) }, "Description", ImeAction.Done)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         TextButton(onClick = { onSave(form, 0) }) { Text("Save") }
                         Button(onClick = { onSave(form, 1); step = 1 }, enabled = title.isNotBlank()) { Text("Next") }
@@ -219,7 +223,7 @@ internal fun DraftEditorScreen(
                         DraftNumberField(releaseYear, { releaseYear = it.filter(Char::isDigit).take(4) }, "Release year")
                         NumberPair("Players", minimumPlayers, { minimumPlayers = it }, maximumPlayers, { maximumPlayers = it })
                         DraftNumberField(minimumAge, { minimumAge = it.filter(Char::isDigit).take(3) }, "Minimum age")
-                        NumberPair("Playing time (minutes)", minimumTime, { minimumTime = it }, maximumTime, { maximumTime = it })
+                        NumberPair("Playing time (minutes)", minimumTime, { minimumTime = it }, maximumTime, { maximumTime = it }, ImeAction.Done)
                     }
                 }
                 if (languages.isNotEmpty()) item { SelectionSection("Languages", languages, languageIds) { languageIds = it } }
@@ -303,17 +307,45 @@ private fun SelectionSection(title: String, values: List<ReferenceData>, selecte
 }
 
 @Composable
-private fun NumberPair(label: String, minimum: String, setMinimum: (String) -> Unit, maximum: String, setMaximum: (String) -> Unit) {
+private fun NumberPair(
+    label: String,
+    minimum: String,
+    setMinimum: (String) -> Unit,
+    maximum: String,
+    setMaximum: (String) -> Unit,
+    finalImeAction: ImeAction = ImeAction.Next,
+) {
+    val focusManager = LocalFocusManager.current
     Text(label, style = MaterialTheme.typography.labelLarge)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(minimum, { setMinimum(it.filter(Char::isDigit).take(4)) }, label = { Text("Minimum") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
-        OutlinedTextField(maximum, { setMaximum(it.filter(Char::isDigit).take(4)) }, label = { Text("Maximum") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
+        OutlinedTextField(minimum, { setMinimum(it.filter(Char::isDigit).take(4)) }, label = { Text("Minimum") }, singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+            keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Next) }), modifier = Modifier.weight(1f))
+        OutlinedTextField(maximum, { setMaximum(it.filter(Char::isDigit).take(4)) }, label = { Text("Maximum") }, singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = finalImeAction),
+            keyboardActions = keyboardActions(focusManager), modifier = Modifier.weight(1f))
     }
 }
 
 @Composable
-private fun DraftTextField(value: String, update: (String) -> Unit, label: String) =
-    OutlinedTextField(value, { update(it.capitalizeDraftText()) }, label = { Text(label) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+private fun DraftTextField(value: String, update: (String) -> Unit, label: String, imeAction: ImeAction = ImeAction.Next) {
+    val focusManager = LocalFocusManager.current
+    OutlinedTextField(value, { update(it.capitalizeDraftText()) }, label = { Text(label) }, singleLine = true,
+        keyboardOptions = KeyboardOptions(imeAction = imeAction), keyboardActions = keyboardActions(focusManager),
+        modifier = Modifier.fillMaxWidth())
+}
+
+@Composable
+private fun NextAwareTextArea(
+    value: String,
+    update: (String) -> Unit,
+    label: String,
+    imeAction: ImeAction = ImeAction.Next,
+) {
+    val focusManager = LocalFocusManager.current
+    OutlinedTextField(value, { update(it.capitalizeDraftText()) }, label = { Text(label) }, modifier = Modifier.fillMaxWidth(), minLines = 3,
+        keyboardOptions = KeyboardOptions(imeAction = imeAction), keyboardActions = keyboardActions(focusManager))
+}
 
 private fun String.capitalizeDraftText(): String {
     val index = indexOfFirst(Char::isLetter)
@@ -322,8 +354,17 @@ private fun String.capitalizeDraftText(): String {
 }
 
 @Composable
-private fun DraftNumberField(value: String, update: (String) -> Unit, label: String) =
-    OutlinedTextField(value, update, label = { Text(label) }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+private fun DraftNumberField(value: String, update: (String) -> Unit, label: String, imeAction: ImeAction = ImeAction.Next) {
+    val focusManager = LocalFocusManager.current
+    OutlinedTextField(value, update, label = { Text(label) }, singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = imeAction),
+        keyboardActions = keyboardActions(focusManager), modifier = Modifier.fillMaxWidth())
+}
+
+private fun keyboardActions(focusManager: androidx.compose.ui.focus.FocusManager) = KeyboardActions(
+    onNext = { focusManager.moveFocus(FocusDirection.Next) },
+    onDone = { focusManager.clearFocus() },
+)
 
 @Composable
 private fun DraftSection(title: String, content: @Composable ColumnScope.() -> Unit) {
