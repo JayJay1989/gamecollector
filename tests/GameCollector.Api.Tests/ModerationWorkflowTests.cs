@@ -156,6 +156,23 @@ public sealed class ModerationWorkflowTests(GameCollectorApiFactory factory) : I
     }
 
     [Fact]
+    public async Task SubmissionRequiresFrontImageButBackImageIsOptional()
+    {
+        var submitter = await CreateUserAsync("Front Only Owner");
+        using var createRequest = UserRequest(HttpMethod.Post, ApiRoutes.V1 + "/game-submissions", submitter);
+        createRequest.Content = JsonContent.Create(Submission("front only game"));
+        using var createResponse = await _client.SendAsync(createRequest);
+        var created = (await createResponse.Content.ReadFromJsonAsync<GameSubmissionDto>())!;
+        await AddReadyImageAsync(created.Game.Id, GameImageType.Front);
+        using var submitRequest = UserRequest(HttpMethod.Post, $"{ApiRoutes.V1}/game-submissions/{created.Game.Id}/submit", submitter);
+        using var submitResponse = await _client.SendAsync(submitRequest);
+        Assert.Equal(HttpStatusCode.OK, submitResponse.StatusCode);
+        var submitted = (await submitResponse.Content.ReadFromJsonAsync<GameSubmissionDto>())!;
+        Assert.Equal("Pending", submitted.Game.ModerationStatus);
+        Assert.Equal("Front only game", submitted.Game.Title);
+    }
+
+    [Fact]
     public async Task ProposedImageStaysStagedUntilAdministratorApprovesIt()
     {
         var user = await CreateUserAsync("Image Correction User");
@@ -269,6 +286,16 @@ public sealed class ModerationWorkflowTests(GameCollectorApiFactory factory) : I
             await dbContext.GameImages.AddAsync(image);
         }
         _ = await dbContext.SaveChangesAsync();
+    }
+
+    private async Task AddReadyImageAsync(Guid gameId, GameImageType type)
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var image = GameImage.Create(Guid.NewGuid(), gameId, type, $"games/{gameId:N}/{type}/image.jpg", "image/jpeg", 100, DateTime.UtcNow);
+        image.MarkProcessing("image/jpeg", 100, 100, 100, new string('a', 64), DateTime.UtcNow);
+        image.MarkReady($"games/{gameId:N}/{type}/image.thumb.jpg", DateTime.UtcNow);
+        await dbContext.GameImages.AddAsync(image); await dbContext.SaveChangesAsync();
     }
 
     private async Task<Guid> AddApprovedGameAsync()

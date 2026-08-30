@@ -114,6 +114,7 @@ interface NotificationDao {
     @Query("UPDATE notifications SET readAtUtc = :readAtUtc WHERE id = :id") suspend fun markRead(id: String, readAtUtc: String)
     @Query("UPDATE notifications SET readAtUtc = :readAtUtc WHERE readAtUtc IS NULL") suspend fun markAllRead(readAtUtc: String)
     @Query("DELETE FROM notifications") suspend fun clear()
+    @Query("DELETE FROM notifications WHERE id = :id") suspend fun delete(id: String)
 }
 
 @Dao

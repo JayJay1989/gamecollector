@@ -45,6 +45,7 @@ public static class DependencyInjection
         services.AddScoped<ICatalogRepository, CatalogRepository>();
         services.AddScoped<ICollectionGameRepository, CollectionGameRepository>();
         services.AddScoped<IWishlistRepository, WishlistRepository>();
+        services.AddScoped<IFriendshipRepository, FriendshipRepository>();
         services.AddScoped<IGameImageRepository, GameImageRepository>();
         services.AddScoped<IGameChangeRequestRepository, GameChangeRequestRepository>();
         services.AddScoped<IAuditLogRepository, AuditLogRepository>();

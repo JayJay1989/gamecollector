@@ -135,6 +135,8 @@ class GameCollectorRepository(
         database.notificationDao().markAllRead(Instant.now().toString())
     }
 
+    suspend fun deleteNotificationLocally(id: String) = database.notificationDao().delete(id)
+
     suspend fun refreshCatalog(deviceId: String, query: String): ApiResult<List<GameSummary>> = api.searchGames(deviceId, query).also { result ->
         if (result is ApiResult.Success) database.withTransaction {
             result.value.forEach { summary ->
@@ -291,8 +293,8 @@ class GameCollectorRepository(
 
 private fun UserProfile.toLocal() = LocalProfile(id, displayName, username, hasActiveDevice, defaultCollectionId)
 private fun LocalProfile.toModel() = UserProfile(id, displayName, username, hasActiveDevice, defaultCollectionId)
-private fun CollectionSummary.toLocal() = LocalCollection(id, name, ownerUserId, myRole.apiValue)
-private fun LocalCollection.toModel() = CollectionSummary(id, name, ownerUserId, CollectionRole.fromApi(myRole))
+private fun CollectionSummary.toLocal() = LocalCollection(id, name, ownerUserId, myRole.apiValue, isPublic)
+private fun LocalCollection.toModel() = CollectionSummary(id, name, ownerUserId, CollectionRole.fromApi(myRole), isPublic)
 private fun CollectionMember.toLocal(collectionId: String) = LocalCollectionMember(collectionId, userId, displayName, username, role.apiValue)
 private fun LocalCollectionMember.toModel() = CollectionMember(userId, displayName, username, CollectionRole.fromApi(role))
 private fun CollectionInvitation.toLocal() = LocalInvitation(id, collectionId, collectionName, inviterUserId, inviteeUserId, role.apiValue, status)
@@ -313,6 +315,9 @@ private fun NotificationItem.toLocal(): LocalNotification {
         "SuggestedEditRejected" -> "Correction rejected" to "Your suggested catalog correction was not approved."
         "DeviceRegistrationReplaced" -> "Device registration changed" to "Push delivery moved to a newer registration for this installation."
         "DeviceRegistrationRevoked" -> "Device registration revoked" to "This installation can no longer make active-device requests."
+        "FriendRequest" -> "New friend request" to "${payload.optString("displayName", "Someone")} wants to add you as a friend."
+        "FriendRequestAccepted" -> "Friend request accepted" to "${payload.optString("displayName", "A user")} accepted your friend request."
+        "FriendRequestDeclined" -> "Friend request declined" to "Your friend request was declined."
         else -> "Game Collector update" to "Open the app to see what changed."
     }
     return LocalNotification(id, type, text.first, text.second, payloadJson, createdAtUtc, readAtUtc)

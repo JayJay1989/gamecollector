@@ -189,6 +189,7 @@ class SyncEngine(
                 name = item.getString("name"),
                 ownerUserId = item.getString("ownerUserId"),
                 myRole = if (item.getString("ownerUserId") == profile.id) 2 else existing[item.getString("id")]?.myRole ?: 0,
+                isPublic = item.optBoolean("isPublic"),
             )
         }
         database.collectionDao().upsertCollections(collections)
@@ -220,7 +221,7 @@ class SyncEngine(
         val role = if (collectionJson.getString("ownerUserId") == profileId) 2
             else members.firstOrNull { it.getString("userId") == profileId }?.let { roleValue(it.get("role")) } ?: 0
         database.collectionDao().upsertCollections(listOf(
-            LocalCollection(collectionId, collectionJson.getString("name"), collectionJson.getString("ownerUserId"), role),
+            LocalCollection(collectionId, collectionJson.getString("name"), collectionJson.getString("ownerUserId"), role, collectionJson.optBoolean("isPublic")),
         ))
         val previousMembers = database.collectionDao().getMembers(collectionId).associateBy(LocalCollectionMember::userId)
         database.collectionDao().clearMembers(collectionId)
@@ -281,6 +282,7 @@ class SyncEngine(
         database.collectionDao().upsertCollections(listOf(LocalCollection(
             id, payload.string("name") ?: old?.name ?: "Collection", owner,
             if (owner == profileId) 2 else old?.myRole ?: 0,
+            if (payload.has("isPublic")) payload.optBoolean("isPublic") else old?.isPublic ?: false,
         )))
     }
 
@@ -318,7 +320,11 @@ class SyncEngine(
         )))
     }
 
-    private suspend fun applyNotification(payload: JSONObject) = database.notificationDao().upsert(listOf(notification(payload)))
+    private suspend fun applyNotification(payload: JSONObject) {
+        val id = payload.string("id") ?: return
+        if (payload.optBoolean("isDeleted")) database.notificationDao().delete(id)
+        else database.notificationDao().upsert(listOf(notification(payload)))
+    }
 
     private suspend fun applyChangeRequest(payload: JSONObject) {
         val id = payload.string("id") ?: return

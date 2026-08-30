@@ -40,6 +40,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -138,12 +139,20 @@ class MainActivity : ComponentActivity() {
                         createCollection = viewModel::createCollection,
                         selectCollection = viewModel::selectCollection,
                         manageCollection = viewModel::manageSelectedCollection,
-                        renameCollection = viewModel::renameCollection,
+                        updateCollection = viewModel::updateCollection,
                         deleteCollection = viewModel::deleteSelectedCollection,
                         invitations = viewModel::showInvitations,
                         notifications = viewModel::showNotifications,
                         openNotification = viewModel::openNotification,
                         markAllNotificationsRead = viewModel::markAllNotificationsRead,
+                        deleteNotification = viewModel::deleteNotification,
+                        friends = viewModel::showFriends,
+                        searchFriends = viewModel::searchFriends,
+                        sendFriendRequest = viewModel::sendFriendRequest,
+                        respondToFriendRequest = viewModel::respondToFriendRequest,
+                        openFriend = viewModel::openFriend,
+                        openFriendCollection = viewModel::openFriendCollection,
+                        removeFriend = viewModel::removeFriend,
                         corrections = viewModel::showCorrections,
                         startCorrection = viewModel::startCorrection,
                         submitCorrection = viewModel::submitCorrection,
@@ -210,12 +219,20 @@ private data class AppActions(
     val createCollection: (String) -> Unit,
     val selectCollection: (String) -> Unit,
     val manageCollection: () -> Unit,
-    val renameCollection: (String) -> Unit,
+    val updateCollection: (String, Boolean) -> Unit,
     val deleteCollection: () -> Unit,
     val invitations: () -> Unit,
     val notifications: () -> Unit,
     val openNotification: (LocalNotification) -> Unit,
     val markAllNotificationsRead: () -> Unit,
+    val deleteNotification: (String) -> Unit,
+    val friends: () -> Unit,
+    val searchFriends: (String) -> Unit,
+    val sendFriendRequest: (String) -> Unit,
+    val respondToFriendRequest: (String, Boolean) -> Unit,
+    val openFriend: (String) -> Unit,
+    val openFriendCollection: (String) -> Unit,
+    val removeFriend: (String) -> Unit,
     val corrections: () -> Unit,
     val startCorrection: () -> Unit,
     val submitCorrection: (CorrectionForm, Uri?, Uri?) -> Unit,
@@ -338,6 +355,8 @@ private fun GameCollectorApp(state: MainUiState, actions: AppActions) {
                     AppPage.AdminCorrection -> state.selectedAdminChangeRequest?.let {
                         AdminCorrectionScreen(it, state.selectedCorrectionImages, actions)
                     } ?: LoadingScreen()
+                    AppPage.Friends -> FriendsScreen(state, actions)
+                    AppPage.FriendProfile -> FriendProfileScreen(state, actions)
                 }
                 state.message?.let {
                     Text(
@@ -383,7 +402,7 @@ private fun OnboardingScreen(onSubmit: (String, String, String) -> Unit) {
         Text("Create your profile and first card-game collection.")
         OutlinedTextField(
             displayName,
-            { displayName = it },
+            { displayName = it.capitalizeFirstLetter() },
             label = { Text("Display name") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
@@ -398,7 +417,7 @@ private fun OnboardingScreen(onSubmit: (String, String, String) -> Unit) {
         )
         OutlinedTextField(
             collectionName,
-            { collectionName = it },
+            { collectionName = it.capitalizeFirstLetter() },
             label = { Text("First collection") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
@@ -489,6 +508,7 @@ private fun HomeScreen(state: MainUiState, actions: AppActions) {
                             Text(if (state.unreadNotificationCount == 0) "Notifications" else "Notifications (${state.unreadNotificationCount})")
                         }
                         OutlinedButton(onClick = actions.invitations) { Text("Invitations") }
+                        OutlinedButton(onClick = actions.friends) { Text("Friends") }
                         OutlinedButton(onClick = actions.drafts) { Text("Submissions") }
                         OutlinedButton(onClick = actions.corrections) { Text("Corrections") }
                         if (state.isAdministrator) {
@@ -524,7 +544,7 @@ private fun HomeScreen(state: MainUiState, actions: AppActions) {
                     )
                     OutlinedTextField(
                         newCollection,
-                        { newCollection = it },
+                        { newCollection = it.capitalizeFirstLetter() },
                         label = { Text("Collection name") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
@@ -1024,7 +1044,7 @@ private fun GamePhotos(
     sides: List<String> = listOf("Front", "Back")
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-        Text("Front and back", style = MaterialTheme.typography.titleMedium)
+        Text("Images", style = MaterialTheme.typography.titleMedium)
         sides.forEach { side ->
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1042,7 +1062,7 @@ private fun GamePhotos(
                             contentScale = ContentScale.Fit,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(320.dp),
+                                .height(if (side.equals("Back", true)) 120.dp else 220.dp),
                         )
                     }
                 }
@@ -1239,7 +1259,7 @@ private fun ProfileScreen(profile: UserProfile?, actions: AppActions) {
     FormScreen("Profile") {
         OutlinedTextField(
             displayName,
-            { displayName = it },
+            { displayName = it.capitalizeFirstLetter() },
             label = { Text("Display name") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
@@ -1268,6 +1288,7 @@ private fun CollectionScreen(state: MainUiState, actions: AppActions) {
     val context = LocalContext.current
     val isOwner = collection.myRole == CollectionRole.Owner
     var name by rememberSaveable(collection.id) { mutableStateOf(collection.name) }
+    var isPublic by rememberSaveable(collection.id) { mutableStateOf(collection.isPublic) }
     var query by rememberSaveable(collection.id) { mutableStateOf("") }
     var confirmDelete by rememberSaveable(collection.id) { mutableStateOf(false) }
     LazyColumn(
@@ -1291,15 +1312,22 @@ private fun CollectionScreen(state: MainUiState, actions: AppActions) {
             item {
                 OutlinedTextField(
                     name,
-                    { name = it },
+                    { name = it.capitalizeFirstLetter() },
                     label = { Text("Collection name") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Public collection", fontWeight = FontWeight.SemiBold)
+                        Text("Accepted friends can browse its games.", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Switch(checked = isPublic, onCheckedChange = { isPublic = it })
+                }
                 Button(
-                    onClick = { actions.renameCollection(name) },
-                    enabled = name.isNotBlank() && name != collection.name
-                ) { Text("Rename") }
+                    onClick = { actions.updateCollection(name, isPublic) },
+                    enabled = name.isNotBlank() && (name != collection.name || isPublic != collection.isPublic)
+                ) { Text("Save collection") }
             }
             item {
                 Text("Invite by username", style = MaterialTheme.typography.titleMedium)
@@ -1433,6 +1461,93 @@ private fun InvitationsScreen(invitations: List<CollectionInvitation>, actions: 
 }
 
 @Composable
+private fun FriendsScreen(state: MainUiState, actions: AppActions) {
+    var query by rememberSaveable { mutableStateOf("") }
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxSize()) {
+        item {
+            Header("Friends", actions.home)
+            OutlinedTextField(query, { query = it }, label = { Text("Find by username") }, prefix = { Text("#") },
+                singleLine = true, modifier = Modifier.fillMaxWidth())
+            Button(onClick = { actions.searchFriends(query) }, modifier = Modifier.padding(top = 8.dp)) { Text("Search users") }
+        }
+        items(state.friendSearchResults, key = { "search-${it.id}" }) { user ->
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Column { Text(user.displayName, fontWeight = FontWeight.SemiBold); Text("#${user.username}") }
+                    Button(onClick = { actions.sendFriendRequest(user.id) }) { Text("Add friend") }
+                }
+            }
+        }
+        if (state.friendRequests.isNotEmpty()) item { Text("Friend requests", style = MaterialTheme.typography.titleMedium) }
+        items(state.friendRequests, key = { "request-${it.id}" }) { request ->
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(request.displayName, fontWeight = FontWeight.SemiBold); Text("#${request.username}")
+                    if (request.incoming) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { actions.respondToFriendRequest(request.id, true) }) { Text("Accept") }
+                        OutlinedButton(onClick = { actions.respondToFriendRequest(request.id, false) }) { Text("Decline") }
+                    } else Text("Request sent", color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
+        item { Text("Your friends", style = MaterialTheme.typography.titleMedium) }
+        if (state.friends.isEmpty()) item { Text("No friends added yet.") }
+        items(state.friends, key = { it.userId }) { friend ->
+            Card(modifier = Modifier.fillMaxWidth(), onClick = { actions.openFriend(friend.userId) }) {
+                Column(Modifier.padding(14.dp)) {
+                    Text(friend.displayName, fontWeight = FontWeight.SemiBold); Text("#${friend.username}")
+                    Text("View public collections and wishlist", color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FriendProfileScreen(state: MainUiState, actions: AppActions) {
+    val friend = state.selectedFriendProfile ?: return
+    var confirmRemove by rememberSaveable(friend.userId) { mutableStateOf(false) }
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxSize()) {
+        item {
+            Header(friend.displayName, actions.friends)
+            Text("#${friend.username}")
+        }
+        item { Text("Public collections", style = MaterialTheme.typography.titleMedium) }
+        if (friend.publicCollections.isEmpty()) item { Text("This friend has no public collections.") }
+        items(friend.publicCollections, key = { it.id }) { collection ->
+            Card(modifier = Modifier.fillMaxWidth(), onClick = { actions.openFriendCollection(collection.id) }) {
+                Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(collection.name, fontWeight = FontWeight.SemiBold); Text("${collection.gameCount} games")
+                }
+            }
+        }
+        if (state.friendCollectionGames.isNotEmpty()) {
+            item { Text("Collection games", style = MaterialTheme.typography.titleMedium) }
+            items(state.friendCollectionGames, key = { "friend-game-${it.gameId}" }) { game ->
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp)) { Text(game.title, fontWeight = FontWeight.SemiBold); game.releaseYear?.let { Text(it.toString()) } }
+                }
+            }
+        }
+        item { Text("Wishlist", style = MaterialTheme.typography.titleMedium) }
+        if (friend.wishlist.isEmpty()) item { Text("The wishlist is empty.") }
+        items(friend.wishlist, key = { "wish-${it.gameId}" }) { game ->
+            Card(modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
+                Text(game.title, fontWeight = FontWeight.SemiBold); game.publisher?.let { Text(it) }
+            } }
+        }
+        item {
+            if (!confirmRemove) TextButton(onClick = { confirmRemove = true }) { Text("Remove friend") }
+            else FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { actions.removeFriend(friend.userId) }) { Text("Confirm remove") }
+                TextButton(onClick = { confirmRemove = false }) { Text("Cancel") }
+            }
+        }
+    }
+}
+
+@Composable
 private fun NotificationsScreen(state: MainUiState, actions: AppActions) {
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -1459,6 +1574,7 @@ private fun NotificationsScreen(state: MainUiState, actions: AppActions) {
                         notification.createdAtUtc.take(16).replace('T', ' '),
                         style = MaterialTheme.typography.bodySmall
                     )
+                    TextButton(onClick = { actions.deleteNotification(notification.id) }) { Text("Delete") }
                 }
             }
         }
@@ -1561,7 +1677,7 @@ private fun CorrectionEditorScreen(game: GameDetails, actions: AppActions) {
         item {
             OutlinedTextField(
                 title,
-                { title = it },
+                { title = it.capitalizeFirstLetter() },
                 label = { Text("Title") },
                 modifier = Modifier.fillMaxWidth()
             )
@@ -1569,7 +1685,7 @@ private fun CorrectionEditorScreen(game: GameDetails, actions: AppActions) {
         item {
             OutlinedTextField(
                 description,
-                { description = it },
+                { description = it.capitalizeFirstLetter() },
                 label = { Text("Description") },
                 modifier = Modifier.fillMaxWidth()
             )
@@ -1577,7 +1693,7 @@ private fun CorrectionEditorScreen(game: GameDetails, actions: AppActions) {
         item {
             OutlinedTextField(
                 publisher,
-                { publisher = it },
+                { publisher = it.capitalizeFirstLetter() },
                 label = { Text("Publisher") },
                 modifier = Modifier.fillMaxWidth()
             )
@@ -1645,6 +1761,12 @@ private fun NumberField(label: String, value: String, onValue: (String) -> Unit)
             .fillMaxWidth()
             .padding(bottom = 8.dp)
     )
+}
+
+private fun String.capitalizeFirstLetter(): String {
+    val index = indexOfFirst(Char::isLetter)
+    if (index < 0 || !this[index].isLowerCase()) return this
+    return replaceRange(index, index + 1, this[index].uppercase())
 }
 
 @Composable

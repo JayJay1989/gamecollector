@@ -26,6 +26,10 @@ public sealed class NotificationsController(INotificationService notifications) 
     public async Task<IActionResult> MarkAllRead(CancellationToken cancellationToken) =>
         ToNoContent(await notifications.MarkAllReadAsync(cancellationToken));
 
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken) =>
+        ToNoContent(await notifications.DeleteAsync(id, cancellationToken));
+
     private IActionResult ToNoContent(Application.Common.Result<bool> result) =>
         result.IsSuccess ? NoContent() : this.ToProblemResult(result.Error!);
 }

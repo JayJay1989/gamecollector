@@ -218,7 +218,7 @@ public sealed class SyncService(
             payload = new
             {
                 Profile = new { profile.Id, profile.DisplayName, profile.Username, profile.DefaultCollectionId, profile.UpdatedAtUtc },
-                Collections = accessible.Select(item => new { item.Id, item.Name, item.OwnerUserId, item.UpdatedAtUtc }),
+                Collections = accessible.Select(item => new { item.Id, item.Name, item.OwnerUserId, item.IsPublic, item.UpdatedAtUtc }),
                 Wishlist = wished.Select(item => new { item.GameId, item.IsPresent, item.LastServerSequence, item.ChangedAtUtc }),
                 Invitations = pendingInvitations.Select(item => new { item.Id, item.CollectionId, item.InviterUserId, item.Role, Status = item.Status.ToString(), item.CreatedAtUtc }),
                 Notifications = recentNotifications.Select(item => new { item.Id, item.Type, Payload = JsonSerializer.Deserialize<JsonElement>(item.PayloadJson, JsonOptions), item.CreatedAtUtc, item.ReadAtUtc })
@@ -232,7 +232,7 @@ public sealed class SyncService(
             var states = await collectionGames.GetStatesForCollectionsAsync([collection.Id], cancellationToken);
             payload = new
             {
-                Collection = new { collection.Id, collection.Name, collection.OwnerUserId, collection.UpdatedAtUtc },
+                Collection = new { collection.Id, collection.Name, collection.OwnerUserId, collection.IsPublic, collection.UpdatedAtUtc },
                 Members = collection.Members.Select(item => new { item.UserId, Role = item.Role.ToString(), item.JoinedAtUtc }),
                 Games = states.Select(item => new { item.GameId, item.IsOwned, item.LastServerSequence, item.ChangedAtUtc })
             };

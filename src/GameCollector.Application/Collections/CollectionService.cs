@@ -59,7 +59,7 @@ public sealed class CollectionService(
     {
         var access = await GetOwnerAsync(id, cancellationToken);
         if (access.Error is not null) return Result.Failure<CollectionDto>(access.Error);
-        try { access.Collection!.Rename(request.Name, Now()); await syncEvents.WriteAsync("collection", id, "collectionChanged", id, new { access.Collection.Id, access.Collection.Name, access.Collection.OwnerUserId, IsDeleted = false }, cancellationToken); await unitOfWork.SaveChangesAsync(cancellationToken); return Result.Success(Map(access.Collection, access.Profile!.Id)); }
+        try { access.Collection!.Update(request.Name, request.IsPublic, Now()); await syncEvents.WriteAsync("collection", id, "collectionChanged", id, new { access.Collection.Id, access.Collection.Name, access.Collection.OwnerUserId, access.Collection.IsPublic, IsDeleted = false }, cancellationToken); await unitOfWork.SaveChangesAsync(cancellationToken); return Result.Success(Map(access.Collection, access.Profile!.Id)); }
         catch (DomainValidationException exception) { return Result.Failure<CollectionDto>(ApplicationErrors.Validation(exception.Message)); }
     }
 
@@ -238,7 +238,7 @@ public sealed class CollectionService(
 
     private Task<UserProfile?> GetProfileAsync(CancellationToken cancellationToken) => users.GetBySubjectAsync(currentUser.Subject ?? throw new InvalidOperationException("Missing subject claim."), cancellationToken);
     private DateTime Now() => timeProvider.GetUtcNow().UtcDateTime;
-    private static CollectionDto Map(Collection item, Guid userId) => new(item.Id, item.Name, item.OwnerUserId, item.OwnerUserId == userId ? CollectionMemberRoleDto.Owner : ToDto(item.GetMemberRole(userId)!.Value), item.CreatedAtUtc, item.UpdatedAtUtc);
+    private static CollectionDto Map(Collection item, Guid userId) => new(item.Id, item.Name, item.OwnerUserId, item.OwnerUserId == userId ? CollectionMemberRoleDto.Owner : ToDto(item.GetMemberRole(userId)!.Value), item.IsPublic, item.CreatedAtUtc, item.UpdatedAtUtc);
     private static CollectionInvitationDto Map(CollectionInvitation item, string name) => new(item.Id, item.CollectionId, name, item.InviterUserId, item.InviteeUserId, ToDto(item.Role), item.Status.ToString(), item.CreatedAtUtc);
     private static CollectionMemberRoleDto ToDto(CollectionRole role) => role == CollectionRole.Editor ? CollectionMemberRoleDto.Editor : CollectionMemberRoleDto.Viewer;
     private static CollectionRole? FromDto(CollectionMemberRoleDto role) => role switch { CollectionMemberRoleDto.Editor => CollectionRole.Editor, CollectionMemberRoleDto.Viewer => CollectionRole.Viewer, _ => null };

@@ -15,6 +15,7 @@ public sealed class CollectionConfiguration : IEntityTypeConfiguration<Collectio
         builder.Property(collection => collection.Name).HasMaxLength(100).IsRequired();
         builder.Property(collection => collection.CreatedAtUtc).IsRequired();
         builder.Property(collection => collection.UpdatedAtUtc).IsRequired();
+        builder.Property(collection => collection.IsPublic).HasDefaultValue(false).IsRequired();
         builder.HasIndex(collection => collection.OwnerUserId);
         builder.HasOne<UserProfile>().WithMany().HasForeignKey(collection => collection.OwnerUserId).OnDelete(DeleteBehavior.Restrict);
         builder.HasMany(collection => collection.Members).WithOne(member => member.Collection).HasForeignKey(member => member.CollectionId).OnDelete(DeleteBehavior.Cascade);

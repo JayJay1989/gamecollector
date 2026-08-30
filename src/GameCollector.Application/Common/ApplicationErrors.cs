@@ -52,7 +52,7 @@ public static class ApplicationErrors
     public static readonly ApplicationError SubmissionNotFound = new(ModerationErrorCodes.SubmissionNotFound, "The game submission does not exist.", ApplicationErrorType.NotFound);
     public static readonly ApplicationError SubmissionNotEditable = new(ModerationErrorCodes.SubmissionNotEditable, "The game submission is not editable.", ApplicationErrorType.Conflict);
     public static readonly ApplicationError SubmissionNotPending = new(ModerationErrorCodes.SubmissionNotPending, "The game submission is not pending review.", ApplicationErrorType.Conflict);
-    public static readonly ApplicationError RequiredImagesMissing = new(ModerationErrorCodes.RequiredImagesMissing, "Ready front and back images are required.", ApplicationErrorType.Conflict);
+    public static readonly ApplicationError RequiredImagesMissing = new(ModerationErrorCodes.RequiredImagesMissing, "A ready front image is required.", ApplicationErrorType.Conflict);
     public static readonly ApplicationError InvalidReferenceData = new(ModerationErrorCodes.InvalidReferenceData, "One or more language or tag IDs are invalid.", ApplicationErrorType.Validation);
     public static readonly ApplicationError RevisionConflict = new(ModerationErrorCodes.RevisionConflict, "The catalog record changed; reload it before trying again.", ApplicationErrorType.Conflict);
     public static readonly ApplicationError ChangeRequestNotFound = new(ModerationErrorCodes.ChangeRequestNotFound, "The game change request does not exist.", ApplicationErrorType.NotFound);

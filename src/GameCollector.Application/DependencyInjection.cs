@@ -21,6 +21,7 @@ public static class DependencyInjection
         services.AddScoped<ICollectionService, CollectionService>();
         services.AddScoped<ICatalogService, CatalogService>();
         services.AddScoped<IOwnershipService, OwnershipService>();
+        services.AddScoped<IFriendService, FriendService>();
         services.AddScoped<IMediaService, MediaService>();
         services.AddScoped<IExternalProductLookupService, ExternalProductLookupService>();
         services.AddScoped<IModerationService, ModerationService>();

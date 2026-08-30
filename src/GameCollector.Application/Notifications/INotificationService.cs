@@ -9,6 +9,7 @@ public interface INotificationService
     Task<Result<IReadOnlyList<NotificationDto>>> ListAsync(CancellationToken cancellationToken = default);
     Task<Result<bool>> MarkReadAsync(Guid id, CancellationToken cancellationToken = default);
     Task<Result<bool>> MarkAllReadAsync(CancellationToken cancellationToken = default);
+    Task<Result<bool>> DeleteAsync(Guid id, CancellationToken cancellationToken = default);
 }
 
 public interface INotificationWriter

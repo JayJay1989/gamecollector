@@ -27,6 +27,7 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
     public DbSet<GameTag> GameTags => Set<GameTag>();
     public DbSet<CollectionGame> CollectionGames => Set<CollectionGame>();
     public DbSet<WishlistItem> WishlistItems => Set<WishlistItem>();
+    public DbSet<Friendship> Friendships => Set<Friendship>();
     public DbSet<GameImage> GameImages => Set<GameImage>();
     public DbSet<GameChangeRequest> GameChangeRequests => Set<GameChangeRequest>();
     public DbSet<GameChangeRequestImage> GameChangeRequestImages => Set<GameChangeRequestImage>();

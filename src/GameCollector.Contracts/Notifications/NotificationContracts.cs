@@ -23,4 +23,7 @@ public static class NotificationTypes
     public const string SuggestedEditRejected = "SuggestedEditRejected";
     public const string DeviceRegistrationReplaced = "DeviceRegistrationReplaced";
     public const string DeviceRegistrationRevoked = "DeviceRegistrationRevoked";
+    public const string FriendRequest = "FriendRequest";
+    public const string FriendRequestAccepted = "FriendRequestAccepted";
+    public const string FriendRequestDeclined = "FriendRequestDeclined";
 }

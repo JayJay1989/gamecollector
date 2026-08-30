@@ -19,11 +19,13 @@ public sealed class Collection
         SetName(name);
         CreatedAtUtc = EnsureUtc(createdAtUtc);
         UpdatedAtUtc = CreatedAtUtc;
+        IsPublic = false;
     }
 
     public Guid Id { get; private set; }
     public string Name { get; private set; } = string.Empty;
     public Guid OwnerUserId { get; private set; }
+    public bool IsPublic { get; private set; }
     public DateTime CreatedAtUtc { get; private set; }
     public DateTime UpdatedAtUtc { get; private set; }
     public IReadOnlyCollection<CollectionMember> Members => _members.AsReadOnly();
@@ -42,6 +44,11 @@ public sealed class Collection
     {
         SetName(name);
         UpdatedAtUtc = EnsureUtc(updatedAtUtc);
+    }
+
+    public void Update(string name, bool isPublic, DateTime updatedAtUtc)
+    {
+        SetName(name); IsPublic = isPublic; UpdatedAtUtc = EnsureUtc(updatedAtUtc);
     }
 
     public bool CanView(Guid userId) => OwnerUserId == userId || _members.Any(member => member.UserId == userId);
@@ -103,7 +110,15 @@ public sealed class Collection
             throw new DomainValidationException("Collection name must contain between 1 and 100 characters.");
         }
 
-        Name = trimmedName;
+        Name = CapitalizeFirstLetter(trimmedName);
+    }
+
+    private static string CapitalizeFirstLetter(string value)
+    {
+        var characters = value.ToCharArray();
+        for (var index = 0; index < characters.Length; index++)
+            if (char.IsLetter(characters[index])) { characters[index] = char.ToUpperInvariant(characters[index]); break; }
+        return new string(characters);
     }
 
     private static DateTime EnsureUtc(DateTime value) => value.Kind == DateTimeKind.Utc

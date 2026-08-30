@@ -103,9 +103,17 @@ public sealed partial class UserProfile
                 "Username must be 3-30 characters, begin with a letter or number, and contain only letters, numbers, dots, underscores, or hyphens.");
         }
 
-        DisplayName = trimmedDisplayName;
+        DisplayName = CapitalizeFirstLetter(trimmedDisplayName);
         Username = trimmedUsername;
         NormalizedUsername = NormalizeUsername(trimmedUsername);
+    }
+
+    private static string CapitalizeFirstLetter(string value)
+    {
+        var characters = value.ToCharArray();
+        for (var index = 0; index < characters.Length; index++)
+            if (char.IsLetter(characters[index])) { characters[index] = char.ToUpperInvariant(characters[index]); break; }
+        return new string(characters);
     }
 
     private static string ValidateIdentitySubject(string identitySubject)

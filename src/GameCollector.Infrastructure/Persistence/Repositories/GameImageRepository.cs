@@ -19,6 +19,8 @@ public sealed class GameImageRepository(ApplicationDbContext dbContext) : IGameI
     public async Task<bool> HasReadyFrontAndBackAsync(Guid gameId, CancellationToken cancellationToken = default) =>
         await dbContext.GameImages.Where(image => image.GameId == gameId && image.Status == GameImageStatus.Ready)
             .Select(image => image.ImageType).Distinct().CountAsync(cancellationToken) == 2;
+    public Task<bool> HasReadyFrontAsync(Guid gameId, CancellationToken cancellationToken = default) =>
+        dbContext.GameImages.AnyAsync(image => image.GameId == gameId && image.ImageType == GameImageType.Front && image.Status == GameImageStatus.Ready, cancellationToken);
     public async Task AddAsync(GameImage entity, CancellationToken cancellationToken = default) =>
         await dbContext.GameImages.AddAsync(entity, cancellationToken);
     public void Remove(GameImage entity) => dbContext.GameImages.Remove(entity);
